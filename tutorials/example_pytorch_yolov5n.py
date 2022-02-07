@@ -27,6 +27,12 @@ from PIL import Image
 This tutorial demonstrates how a model (more specifically, MobileNetV1) can be
 quantized and optimized using the Model Compression Toolkit (MCT). 
 """
+####################################
+# Install packages needed for yolov5
+####################################
+# seaborn
+# pyyaml
+# pandas
 
 ####################################
 # Preprocessing images
@@ -57,26 +63,47 @@ def normalization(x):
 def np_to_pil(img):
     return Image.fromarray(img)
 
+class ConcatOut(nn.Module):
+    # Concatenate a list of tensors along dimension
+    def __init__(self, dimension=0):
+        super().__init__()
+        self.d = dimension
+    def forward(self, inputs):
+        y = []
+        for x in inputs:
+            x = torch.sigmoid(x)
+            x = torch.reshape(x, (-1,85))
+            y.append(x)
+        return torch.cat(y, self.d)
 
 class Yolov5nRefactor(nn.Module):
     def __init__(self, model):
         super().__init__()
         model = model.model.model # remove wrappers
-        self.save_out_block = [4, 6, 10, 14, 17, 20, 23]
+        # ------------------------------------------------------ #
         # Replace Upsampe with UpsamplingBilinear2d
+        # ------------------------------------------------------ #
         for block in model:
             if block._get_name() == 'Upsample':
                 i, f = block.i, block.f
                 model[i] = nn.UpsamplingBilinear2d(scale_factor=2.0)
                 model[i].i, model[i].f = i, f
-        # Put last convolutions in the end
-        last_convs = torch.nn.Sequential()
+
+        # ------------------------------------------------------ #
+        # Add concat for last convolutions in the end
+        # ------------------------------------------------------ #
+        last_convs_i = [17, 20, 23]
+        last_convs_nn = torch.nn.Sequential()
         for i,block in enumerate(list(model)[-1].m):
-            block.i = 24
-            block.f = self.save_out_block[-3+i]
-            last_convs = nn.Sequential(*last_convs, block)
-        model = nn.Sequential(*list(model.children())[:-1])
-        self.yolov5n = nn.Sequential(*model, *last_convs)
+            block.i = 24+i
+            block.f = last_convs_i[i]
+            last_convs_nn = nn.Sequential(*last_convs_nn, block)
+        concat_nn = ConcatOut()
+        concat_nn.f = [24,25,26]
+        concat_nn.i = 27
+        model = nn.Sequential(*list(model.children())[:-1]) # remove wrapper
+        self.save_out_block = [4, 6, 10, 14] + last_convs_i + concat_nn.f
+        self.yolov5n = nn.Sequential(*model, *last_convs_nn, concat_nn)
 
     def forward(self, x):
         y = []  # outputs
@@ -122,16 +149,16 @@ if __name__ == '__main__':
 
     # Create a model and quantize it using the representative_data_gen as the calibration images.
     # Set the number of calibration iterations to 10.
-    model_path = r"E:\Models\yolov5\yolov5n.pt"
     #model = tf.keras.models.load_model(model_path)
     #model = tf.saved_model.load(model_path)
     #model = mobilenet_v2(pretrained=True)
     #model = ssdlite320_mobilenet_v3_large(pretrained=True)
-    # seaborn
-    #pyyaml
-    #pandas
+
     model = torch.hub.load('ultralytics/yolov5', 'yolov5n', autoshape=False, pretrained=True)
     model = Yolov5nRefactor(model)
+
+    # x = torch.randn((1,3,640,640))
+    # y = model(x)
 
     quantized_model, quantization_info = mct.pytorch_post_training_quantization(model, representative_data_gen, n_iter=10)
 
