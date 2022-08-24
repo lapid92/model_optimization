@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import numpy as np
+
 from typing import Tuple, List
 from model_compression_toolkit.core.common.graph.base_graph import Graph
 from model_compression_toolkit.core.common.graph.base_node import BaseNode
@@ -39,6 +41,6 @@ def get_compare_points(input_graph: Graph) -> Tuple[List[BaseNode], List[str], L
         if len(n.weights) > 0 and n.is_weights_quantization_enabled():
             compare_points.append(n)
             compare_points_name.append(n.name)
-            compare_points_std.append(n.prior_info.std_output)
+            compare_points_std.append(np.abs(n.prior_info.std_output))
             compare_points_mean.append(n.prior_info.mean_output)
     return compare_points, compare_points_name, compare_points_mean, compare_points_std

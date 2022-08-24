@@ -34,10 +34,115 @@ if FOUND_TORCH:
     from model_compression_toolkit.core.pytorch.pytorch_implementation import PytorchImplementation
     from model_compression_toolkit.core.pytorch.constants import DEFAULT_TP_MODEL
     from torch.nn import Module
+    import copy
+
+    import numpy as np
+    from tqdm import tqdm
+    import torch
+    import matplotlib.pyplot as plt
+    from model_compression_toolkit.core.pytorch.utils import set_model, to_torch_tensor
 
     from model_compression_toolkit import get_target_platform_capabilities
     DEFAULT_PYTORCH_TPC = get_target_platform_capabilities(PYTORCH, DEFAULT_TP_MODEL)
 
+
+    def _apply_bn_tuning(quantized_model, core_config, representative_data_gen, tb_w):
+        model = copy.deepcopy(quantized_model)
+        set_model(model)
+
+        # User control for now?
+        # apply fine tune for running mean?
+        bn_tuning_mean = True
+        # apply fine tune for running var?
+        bn_tuning_var = True
+
+        show_graphs = False
+
+        bn_num = 0
+
+        # Move every BN to train mode and count bn in model
+        for module in model.modules():
+            if isinstance(module, torch.nn.BatchNorm2d):
+                module.train()
+                bn_num = bn_num + 1
+
+        first_mean = [] * bn_num
+        first_var = [] * bn_num
+
+        last_mean = [] * bn_num
+        last_var = [] * bn_num
+        if show_graphs:
+            bn_mean_from_orig_array = np.zeros([bn_num, core_config.n_iter])
+            bn_var_from_orig_array = np.zeros([bn_num, core_config.n_iter])
+
+            bn_mean_array = np.zeros([bn_num, core_config.n_iter])
+            bn_var_array = np.zeros([bn_num, core_config.n_iter])
+
+        momentum = 0
+
+        bn_names = [] * bn_num
+
+        # get orig values of running mean and running var
+        for name, module in model.named_modules():
+            if isinstance(module, torch.nn.BatchNorm2d):
+                bn_names.append(name)
+                momentum = module.momentum
+                first_mean.append(copy.deepcopy(module.running_mean))
+                first_var.append(copy.deepcopy(module.running_var))
+                last_mean.append(copy.deepcopy(module.running_mean))
+                last_var.append(copy.deepcopy(module.running_var))
+
+        for iter in tqdm(range(core_config.n_iter)):
+            with torch.no_grad():
+                model(to_torch_tensor(representative_data_gen()[0]))
+                i = 0
+                for module in model.modules():
+                    if isinstance(module, torch.nn.BatchNorm2d):
+                        if not bn_tuning_mean:
+                            module.running_mean = copy.deepcopy(first_mean[i])
+                        if not bn_tuning_var:
+                            module.running_var = copy.deepcopy(first_var[i])
+
+                        if show_graphs:
+                            bn_mean_from_orig_array[i, iter] = torch.norm(module.running_mean - first_mean[i], p=2) \
+                                                               / torch.norm(first_mean[i], p=2)
+                            bn_var_from_orig_array[i, iter] = torch.norm(module.running_var - first_var[i], p=2) \
+                                                              / torch.norm(first_var[i], p=2)
+
+                            bn_mean_array[i, iter] = torch.norm(module.running_mean - last_mean[i], p=2) \
+                                                     / torch.norm(first_mean[i], p=2)
+                            bn_var_array[i, iter] = torch.norm(module.running_var - last_var[i], p=2) \
+                                                    / torch.norm(first_var[i], p=2)
+                            last_mean[i] = copy.deepcopy(module.running_mean)
+                            last_var[i] = copy.deepcopy(module.running_var)
+                        i = i + 1
+        set_model(model)
+
+        if show_graphs:
+            for bn in range(bn_num):
+                plt.figure()
+                plt.plot(bn_mean_array[bn], 'b-', label='mean')
+                plt.plot(bn_var_array[bn], 'g-', label='var')
+                plt.title(bn_names[bn] + ', momentum=' + str(momentum))
+                plt.xlabel('Iters')
+                plt.ylabel('Norm2 of diff between iters')
+                plt.legend(loc="upper right")
+                plt.show()
+
+            for bn in range(bn_num):
+                plt.figure()
+                plt.plot(bn_mean_from_orig_array[bn], 'b-', label='mean')
+                plt.plot(bn_var_from_orig_array[bn], 'g-', label='var')
+                plt.title(bn_names[bn] + ', diff from original, momentum=' + str(momentum))
+                plt.xlabel('Iters')
+                plt.ylabel('Norm2 of diff from orig')
+                plt.legend(loc="upper right")
+                plt.show()
+
+        for module in model.modules():
+            if isinstance(module, torch.nn.BatchNorm2d):
+                module.eval()
+        return model
 
     def pytorch_post_training_quantization_experimental(in_module: Module,
                                                         representative_data_gen: Callable,
@@ -117,6 +222,9 @@ if FOUND_TORCH:
             analyzer_model_quantization(representative_data_gen, tb_w, tg, fw_impl, fw_info)
 
         quantized_model, user_info = export_model(tg, fw_info, fw_impl, tb_w, bit_widths_config)
+        set_model(quantized_model)
+        if core_config.quantization_config.bn_tuning:
+            quantized_model = _apply_bn_tuning(quantized_model, core_config, representative_data_gen, tb_w)
 
         return quantized_model, user_info
 

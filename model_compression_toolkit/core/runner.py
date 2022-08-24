@@ -336,6 +336,12 @@ def _prepare_model_for_quantization(graph: Graph,
                                             tb_w,
                                             fw_impl,
                                             mixed_precision_enable=core_config.mixed_precision_enable)
+    ######################################
+    # BatchNorm Tuning
+    ######################################
+    transformed_graph = substitute(transformed_graph,
+                                   fw_impl.get_substitutions_bn_tunning(
+                                       core_config.quantization_config))
 
     ######################################
     # Graph analyzing (attaching statistics collectors)

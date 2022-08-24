@@ -58,6 +58,10 @@ EPSILON = 'eps'
 DIM = 'dim'
 IN_CHANNELS = 'in_channels'
 OUT_CHANNELS = 'out_channels'
+NUM_FEATURES = 'num_features'
+MOMENTUM = 'momentum'
+AFFINE = 'affine'
+TRACK_RUNNING_STATS = 'track_running_stats'
 
 # torch devices
 CUDA = 'cuda'

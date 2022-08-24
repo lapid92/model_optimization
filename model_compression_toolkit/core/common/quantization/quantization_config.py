@@ -55,6 +55,7 @@ class QuantizationConfig:
                  softmax_shift: bool = False,
                  shift_negative_activation_correction: bool = False,
                  activation_channel_equalization: bool = False,
+                 bn_tuning: bool = False,
                  z_threshold: float = math.inf,
                  min_threshold: float = MIN_THRESHOLD,
                  l_p_value: int = 2,
@@ -103,6 +104,7 @@ class QuantizationConfig:
         self.weights_bias_correction = weights_bias_correction
         self.weights_per_channel_threshold = weights_per_channel_threshold
         self.activation_channel_equalization = activation_channel_equalization
+        self.bn_tuning = bn_tuning
         self.input_scaling = input_scaling
         self.softmax_shift = softmax_shift
         self.min_threshold = min_threshold

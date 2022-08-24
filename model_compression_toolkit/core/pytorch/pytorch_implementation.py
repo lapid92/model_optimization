@@ -40,6 +40,8 @@ from model_compression_toolkit.core.pytorch.back2framework.model_gradients impor
 from model_compression_toolkit.core.pytorch.default_framework_info import DEFAULT_PYTORCH_INFO
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.batchnorm_folding import \
     pytorch_batchnorm_folding
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.batchnorm_tunning import \
+    pytorch_batchnorm_tuning
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.linear_collapsing import \
     pytorch_linear_collapsing
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.multi_head_attention_decomposition \
@@ -207,6 +209,16 @@ class PytorchImplementation(FrameworkImplementation):
         if quant_config.activation_channel_equalization:
             substitutions_list.extend([ScaleEqualization(quant_config, fw_info),
                                        ScaleEqualizationWithPad(quant_config, fw_info)])
+        return substitutions_list
+
+    def get_substitutions_bn_tunning(self,
+                                     quant_config: QuantizationConfig
+                                     ) -> List[common.BaseSubstitution]:
+        """
+        """
+        substitutions_list = []
+        if quant_config.bn_tuning:
+            substitutions_list.extend([pytorch_batchnorm_tuning()])
         return substitutions_list
 
     def get_substitutions_prepare_graph(self) -> List[common.BaseSubstitution]:

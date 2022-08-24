@@ -248,6 +248,14 @@ class FrameworkImplementation(ABC):
                              f'framework\'s get_substitutions_post_statistics_collection method.')
 
     @abstractmethod
+    def get_substitutions_bn_tunning(self, quant_config: QuantizationConfig) -> List[
+        common.BaseSubstitution]:
+        """
+        """
+        raise NotImplemented(f'{self.__class__.__name__} have to implement the '
+                             f'framework\'s get_substitutions_bn_tunning method.')
+
+    @abstractmethod
     def get_gptq_trainer_obj(self):
         """
         Returns: GPTQTrainer object

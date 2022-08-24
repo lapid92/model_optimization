@@ -22,6 +22,7 @@ from tests.pytorch_tests.model_tests.feature_models.remove_assert_test import As
 from tests.pytorch_tests.model_tests.feature_models.remove_broken_node_test import BrokenNetTest
 from tests.pytorch_tests.model_tests.feature_models.add_same_test import AddSameNetTest
 from tests.pytorch_tests.model_tests.feature_models.bn_folding_test import BNFoldingNetTest
+from tests.pytorch_tests.model_tests.feature_models.bn_tuning_test import BNTuningNetTest
 from tests.pytorch_tests.model_tests.feature_models.linear_collapsing_test import TwoConv2DCollapsingTest, \
     ThreeConv2DCollapsingTest, FourConv2DCollapsingTest, SixConv2DCollapsingTest
 from tests.pytorch_tests.model_tests.feature_models.residual_collapsing_test import ResidualCollapsingTest1, ResidualCollapsingTest2
@@ -112,6 +113,11 @@ class FeatureModelsTestRunner(unittest.TestCase):
         This test checks the BatchNorm folding feature, plus adding a residual connection.
         """
         BNFoldingNetTest(self).run_test()
+
+    def test_bn_tuning(self):
+        """
+        """
+        BNTuningNetTest(self).run_test()
 
     def test_broken_net(self):
         """
