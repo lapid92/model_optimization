@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-
+import copy
 import glob
 import os
 import unittest
@@ -25,10 +25,12 @@ from tensorboard.compat.proto.graph_pb2 import GraphDef
 
 import model_compression_toolkit as mct
 from model_compression_toolkit.core import common
+from model_compression_toolkit.core.common.constants import TENSORFLOW
 from model_compression_toolkit.core.common.mixed_precision.mixed_precision_quantization_config import \
     DEFAULT_MIXEDPRECISION_CONFIG
 from model_compression_toolkit.core.common.visualization.final_config_visualizer import \
     ActivationFinalBitwidthConfigVisualizer
+from model_compression_toolkit.core.keras.constants import DEFAULT_TP_MODEL
 from model_compression_toolkit.core.keras.default_framework_info import DEFAULT_KERAS_INFO
 from model_compression_toolkit.core.keras.keras_implementation import KerasImplementation
 from model_compression_toolkit.core.tpc_models.default_tpc.latest import generate_keras_tpc
@@ -129,24 +131,24 @@ class TestFileLogger(unittest.TestCase):
 
         # Test Single Output Mixed Precision model Logger
         self.model = SingleOutputNet()
-        base_config, _ = get_op_quantization_configs()
-        tpc_model = generate_tp_model_with_activation_mp(
-            base_cfg=base_config,
-            mp_bitwidth_candidates_list=[(8, 8), (8, 4)])
-        tpc = generate_keras_tpc(name='mp_keras_tpc', tp_model=tpc_model)
-        mct.keras_post_training_quantization_mixed_precision(in_model=self.model,
-                                                             representative_data_gen=random_datagen,
-                                                             target_kpi=mct.KPI(),
-                                                             target_platform_capabilities=tpc)
+        tpc = mct.get_target_platform_capabilities(TENSORFLOW, DEFAULT_TP_MODEL)
+
+        def rep_data():
+            return [np.random.randn(1, 8, 8, 3)]
+
+        mp_qc = copy.deepcopy(DEFAULT_MIXEDPRECISION_CONFIG)
+        mp_qc.num_of_images = 1
+        quantized_model, _ = mct.keras_post_training_quantization_mixed_precision(self.model,
+                                                                                  rep_data,
+                                                                                  target_kpi=mct.KPI(np.inf),
+                                                                                  n_iter=1,
+                                                                                  quant_config=mp_qc,
+                                                                                  target_platform_capabilities=tpc)
+
         self.tensorboard_initial_graph_num_of_nodes(num_event_files=1, event_to_test=0)
 
         # Test Logger file created
         self.tensorboard_log_dir()
-
-        # Test Multiple Outputs model Logger
-        self.model = MultipleOutputsNet()
-        mct.keras_post_training_quantization(self.model, random_datagen, n_iter=1, analyze_similarity=True)
-        # self.tensorboard_initial_graph_num_of_nodes(num_event_files=2, event_to_test=1)
 
         # Test tensor size plotting
         self.plot_tensor_sizes()
