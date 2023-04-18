@@ -46,7 +46,8 @@ if FOUND_TORCH:
                      per_channel: bool,
                      channel_axis: int = None,
                      multiplier_n_bits: int = MULTIPLIER_N_BITS,
-                     eps: float = EPS):
+                     eps: float = EPS,
+                     input_rank: int = None):
             """
             Initialize the quantizer with the specified parameters.
 

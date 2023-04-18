@@ -38,22 +38,27 @@ def get_weights_inferable_quantizer_kwargs(node: BaseNode) -> Dict[str, Any]:
         return {qi_inferable_quantizers_constants.NUM_BITS: node_w_qc.weights_n_bits,
                 qi_inferable_quantizers_constants.THRESHOLD: node_w_qc.weights_quantization_params[THRESHOLD].flatten(),
                 qi_inferable_quantizers_constants.PER_CHANNEL: node_w_qc.weights_per_channel_threshold,
-                qi_inferable_quantizers_constants.CHANNEL_AXIS: node_w_qc.weights_channels_axis}
+                qi_inferable_quantizers_constants.CHANNEL_AXIS: node_w_qc.weights_channels_axis,
+                qi_inferable_quantizers_constants.INPUT_RANK: len(node_w_qc.weights_quantization_params[THRESHOLD].shape)}
 
     elif quantization_method in [QuantizationMethod.UNIFORM]:
         return {qi_inferable_quantizers_constants.NUM_BITS: node_w_qc.weights_n_bits,
                 qi_inferable_quantizers_constants.PER_CHANNEL: node_w_qc.weights_per_channel_threshold,
                 qi_inferable_quantizers_constants.MIN_RANGE: node_w_qc.weights_quantization_params[RANGE_MIN].flatten(),
                 qi_inferable_quantizers_constants.MAX_RANGE: node_w_qc.weights_quantization_params[RANGE_MAX].flatten(),
-                qi_inferable_quantizers_constants.CHANNEL_AXIS: node_w_qc.weights_channels_axis}
+                qi_inferable_quantizers_constants.CHANNEL_AXIS: node_w_qc.weights_channels_axis,
+                qi_inferable_quantizers_constants.INPUT_RANK:
+                    len(node_w_qc.weights_quantization_params[RANGE_MIN].shape)}
 
     elif quantization_method in [QuantizationMethod.LUT_POT_QUANTIZER, QuantizationMethod.LUT_SYM_QUANTIZER]:
         return {qi_inferable_quantizers_constants.NUM_BITS: node_w_qc.weights_n_bits,
                 qi_inferable_quantizers_constants.CLUSTER_CENTERS: node_w_qc.weights_quantization_params[CLUSTER_CENTERS].flatten(),
                 qi_inferable_quantizers_constants.THRESHOLD: node_w_qc.weights_quantization_params[SCALE_PER_CHANNEL].flatten(),
                 qi_inferable_quantizers_constants.PER_CHANNEL: node_w_qc.weights_per_channel_threshold,
-                qi_inferable_quantizers_constants.CHANNEL_AXIS: node_w_qc.weights_channels_axis}
-                # TODO: Add MULTIPLIER_N_BITS & EPS to node quantization config
+                qi_inferable_quantizers_constants.CHANNEL_AXIS: node_w_qc.weights_channels_axis,
+                qi_inferable_quantizers_constants.INPUT_RANK: len(
+                    node_w_qc.weights_quantization_params[SCALE_PER_CHANNEL].shape)}
+        # TODO: Add MULTIPLIER_N_BITS & EPS to node quantization config
 
     else:
         Logger.critical(f'Not supported quantization method for weights inferable quantizers.')  # pragma: no cover

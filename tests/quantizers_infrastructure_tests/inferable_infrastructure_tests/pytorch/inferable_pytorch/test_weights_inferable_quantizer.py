@@ -30,7 +30,8 @@ class TestPytorchWeightsSymmetricInferablePerTensorQuantizer(BaseInferableQuanti
         thresholds = np.asarray([4])
         quantizer = WeightsSymmetricInferableQuantizer(num_bits=num_bits,
                                                        per_channel=False,
-                                                       threshold=thresholds)
+                                                       threshold=thresholds,
+                                                       input_rank=4)
 
         # Initialize a random input to quantize between -50 to 50.
         input_tensor = torch.rand(1, 50, 50, 3) * 100 - 50
@@ -46,11 +47,11 @@ class TestPytorchWeightsSymmetricInferablePerTensorQuantizer(BaseInferableQuanti
             0], f'Quantized values should not contain values lower than minimal threshold'
 
         self.unit_test.assertTrue(len(quantized_tensor.unique()) <= 2 ** num_bits,
-                        f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
-                        f'{len(quantized_tensor.unique())} unique values')
+                                  f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
+                                  f'{len(quantized_tensor.unique())} unique values')
         # Assert some values are negative (signed quantization)
         self.unit_test.assertTrue(torch.any(quantized_tensor < 0),
-                        f'Expected some values to be negative but quantized tensor is {quantized_tensor}')
+                                  f'Expected some values to be negative but quantized tensor is {quantized_tensor}')
 
         # Assert manually quantized values are the same:
         scale = thresholds[0] / (2 ** (num_bits - 1))
@@ -60,14 +61,15 @@ class TestPytorchWeightsSymmetricInferablePerTensorQuantizer(BaseInferableQuanti
 
 
 class TestPytorchWeightsSymmetricInferablePerChannelQuantizer(BaseInferableQuantizerTest):
-    
+
     def run_test(self):
         thresholds = np.asarray([3, 6, 2])
         num_bits = 2
         quantizer = WeightsSymmetricInferableQuantizer(num_bits=num_bits,
                                                        per_channel=True,
                                                        threshold=thresholds,
-                                                       channel_axis=3)
+                                                       channel_axis=3,
+                                                       input_rank=4)
 
         # Initialize a random input to quantize between -50 to 50.
         input_tensor = torch.rand(1, 50, 50, 3) * 100 - 50
@@ -85,11 +87,11 @@ class TestPytorchWeightsSymmetricInferablePerChannelQuantizer(BaseInferableQuant
                 channel_slice_i) >= -thresholds[
                 i], f'Quantized values should not contain values lower than threshold'
             self.unit_test.assertTrue(len(channel_slice_i.unique()) <= 2 ** num_bits,
-                            f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
-                            f'{len(channel_slice_i.unique())} unique values')
+                                      f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
+                                      f'{len(channel_slice_i.unique())} unique values')
             # Assert some values are negative (signed quantization)
             self.unit_test.assertTrue(torch.any(channel_slice_i < 0),
-                            f'Expected some values to be negative but quantized tensor is {channel_slice_i}')
+                                      f'Expected some values to be negative but quantized tensor is {channel_slice_i}')
 
         # Assert manually quantized values are the same:
         thresholds = torch.Tensor(thresholds).to(get_working_device())
@@ -101,7 +103,7 @@ class TestPytorchWeightsSymmetricInferablePerChannelQuantizer(BaseInferableQuant
 
 
 class TestPytorchWeightsSymmetricInferableNoAxisQuantizer(BaseInferableQuantizerTest):
-    
+
     def run_test(self):
         with self.unit_test.assertRaises(Exception) as e:
             WeightsSymmetricInferableQuantizer(num_bits=8,
@@ -125,18 +127,20 @@ class TestPytorchWeightsPOTInferableQuantizerRaise(BaseInferableQuantizerTest):
                                          per_channel=False,
                                          # More than one threshold in per-tensor quantization
                                          threshold=np.asarray([2, 3]))
-        self.unit_test.assertEqual('In per-tensor quantization threshold should be of length 1 but is 2', str(e.exception))
+        self.unit_test.assertEqual('In per-tensor quantization threshold should be of length 1 but is 2',
+                                   str(e.exception))
 
 
 class TestPytorchWeightsPOTInferablePerChannelQuantizer(BaseInferableQuantizerTest):
-    
+
     def run_test(self):
         thresholds = np.asarray([2, 4, 1])
         num_bits = 3
         quantizer = WeightsPOTInferableQuantizer(num_bits=num_bits,
                                                  per_channel=True,
                                                  threshold=thresholds,
-                                                 channel_axis=3)
+                                                 channel_axis=3,
+                                                 input_rank=4)
 
         is_pot_scales = torch.all(
             quantizer.scales.log2().int() == quantizer.scales.log2())
@@ -156,11 +160,11 @@ class TestPytorchWeightsPOTInferablePerChannelQuantizer(BaseInferableQuantizerTe
                 channel_slice_i) >= -thresholds[
                 i], f'Quantized values should not contain values lower than threshold'
             self.unit_test.assertTrue(len(channel_slice_i.unique()) <= 2 ** num_bits,
-                            f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
-                            f'{len(channel_slice_i.unique())} unique values')
+                                      f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
+                                      f'{len(channel_slice_i.unique())} unique values')
             # Assert some values are negative (signed quantization)
             self.unit_test.assertTrue(torch.any(channel_slice_i < 0),
-                            f'Expected some values to be negative but quantized tensor is {channel_slice_i}')
+                                      f'Expected some values to be negative but quantized tensor is {channel_slice_i}')
 
         # Assert manually quantized values are the same:
         thresholds = torch.Tensor(thresholds).to(get_working_device())
@@ -175,13 +179,14 @@ class TestPytorchWeightsPOTInferablePerChannelQuantizer(BaseInferableQuantizerTe
         num_bits = 2
         quantizer = WeightsPOTInferableQuantizer(num_bits=num_bits,
                                                  per_channel=False,
-                                                 threshold=thresholds)
+                                                 threshold=thresholds,
+                                                 input_rank=4)
         is_pot_scales = torch.all(
             quantizer.scales.log2().int() == quantizer.scales.log2())
         self.unit_test.assertTrue(is_pot_scales, f'Expected scales to be POT but: {quantizer.scales}')
         self.unit_test.assertTrue(len(quantizer.scales) == 1,
-                        f'Expected to have one scale in per-tensor quantization but found '
-                        f'{len(quantizer.scales)} scales')
+                                  f'Expected to have one scale in per-tensor quantization but found '
+                                  f'{len(quantizer.scales)} scales')
 
         # Initialize a random input to quantize between -50 to 50.
         input_tensor = torch.rand(1, 50, 50, 3) * 100 - 50
@@ -192,11 +197,11 @@ class TestPytorchWeightsPOTInferablePerChannelQuantizer(BaseInferableQuantizerTe
         assert torch.min(fake_quantized_tensor) >= -thresholds[
             0], f'Quantized values should not contain values lower than threshold'
         self.unit_test.assertTrue(len(fake_quantized_tensor.unique()) <= 2 ** num_bits,
-                        f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
-                        f'{len(fake_quantized_tensor.unique())} unique values')
+                                  f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
+                                  f'{len(fake_quantized_tensor.unique())} unique values')
         # Assert some values are negative (signed quantization)
         self.unit_test.assertTrue(torch.any(fake_quantized_tensor < 0),
-                        f'Expected some values to be negative but quantized tensor is {fake_quantized_tensor}')
+                                  f'Expected some values to be negative but quantized tensor is {fake_quantized_tensor}')
 
         # Assert manually quantized values are the same:
         thresholds = torch.Tensor(thresholds).to(get_working_device())
@@ -216,7 +221,8 @@ class TestPytorchWeightsUniformInferablePerChannelQuantizer(BaseInferableQuantiz
                                                      per_channel=True,
                                                      min_range=min_range,
                                                      max_range=max_range,
-                                                     channel_axis=2)
+                                                     channel_axis=2,
+                                                     input_rank=4)
 
         # Initialize a random input to quantize between -50 to 50.
         input_tensor = torch.rand(1, 50, 4, 50) * 100 - 50
@@ -233,13 +239,13 @@ class TestPytorchWeightsUniformInferablePerChannelQuantizer(BaseInferableQuantiz
                 channel_slice_i) >= expected_min_channel, f'Quantized values should not contain values lower than ' \
                                                           f'threshold'
             self.unit_test.assertTrue(len(channel_slice_i.unique()) <= 2 ** num_bits,
-                            f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
-                            f'{len(channel_slice_i.unique())} unique values')
+                                      f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
+                                      f'{len(channel_slice_i.unique())} unique values')
 
             # Assert some values are negative (if min range is negative)
             if expected_min_channel < 0:
                 self.unit_test.assertTrue(torch.any(channel_slice_i < 0),
-                                f'Expected some values to be negative but quantized tensor is {channel_slice_i}')
+                                          f'Expected some values to be negative but quantized tensor is {channel_slice_i}')
 
         # Assert manually quantized values are the same:
         min_range = torch.reshape(torch.Tensor(min_range).to(get_working_device()), (1, 1, 4, 1))
@@ -251,7 +257,7 @@ class TestPytorchWeightsUniformInferablePerChannelQuantizer(BaseInferableQuantiz
 
 
 class TestPytorchWeightsUniformInferablePerTensorQuantizer(BaseInferableQuantizerTest):
-    
+
     def run_test(self):
         num_bits = 3
         min_range = np.asarray([-10])
@@ -259,7 +265,8 @@ class TestPytorchWeightsUniformInferablePerTensorQuantizer(BaseInferableQuantize
         quantizer = WeightsUniformInferableQuantizer(num_bits=num_bits,
                                                      per_channel=False,
                                                      min_range=min_range,
-                                                     max_range=max_range)
+                                                     max_range=max_range,
+                                                     input_rank=4)
 
         # Initialize a random input to quantize between -50 to 50.
         input_tensor = torch.rand(1, 50, 4, 50) * 100 - 50
@@ -271,12 +278,12 @@ class TestPytorchWeightsUniformInferablePerTensorQuantizer(BaseInferableQuantize
         assert torch.min(fake_quantized_tensor) >= min_range[
             0], f'Quantized values should not contain values lower than threshold'
         self.unit_test.assertTrue(len(fake_quantized_tensor.unique()) <= 2 ** num_bits,
-                        f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
-                        f'{len(fake_quantized_tensor.unique())} unique values')
+                                  f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
+                                  f'{len(fake_quantized_tensor.unique())} unique values')
 
         # Assert some values are negative
         self.unit_test.assertTrue(torch.any(fake_quantized_tensor < 0),
-                        f'Expected some values to be negative but quantized tensor is {fake_quantized_tensor}')
+                                  f'Expected some values to be negative but quantized tensor is {fake_quantized_tensor}')
 
         # Assert manually quantized values are the same:
         min_range = torch.Tensor(min_range).to(get_working_device())
@@ -288,7 +295,7 @@ class TestPytorchWeightsUniformInferablePerTensorQuantizer(BaseInferableQuantize
 
 
 class TestPytorchWeightsUniformInferableQuantizerZeroNotInRange(BaseInferableQuantizerTest):
-    
+
     def run_test(self):
         num_bits = 3
         min_range = np.asarray([-10.7, 2.3, -6.6, 0])
@@ -297,7 +304,8 @@ class TestPytorchWeightsUniformInferableQuantizerZeroNotInRange(BaseInferableQua
                                                      per_channel=True,
                                                      min_range=min_range,
                                                      max_range=max_range,
-                                                     channel_axis=2)
+                                                     channel_axis=2,
+                                                     input_rank=4)
 
         # Initialize a random input to quantize between -50 to 50.
         input_tensor = torch.rand(1, 50, 4, 50) * 100 - 50
@@ -308,7 +316,7 @@ class TestPytorchWeightsUniformInferableQuantizerZeroNotInRange(BaseInferableQua
             expected_min_channel, expected_max_channel = min_range[i], max_range[i]
             channel_slice_i = fake_quantized_tensor[:, :, i, :]
             self.unit_test.assertTrue(len(channel_slice_i.unique()) <= 2 ** num_bits,
-                            f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
-                            f'{len(channel_slice_i.unique())} unique values')
+                                      f'Quantized tensor expected to have no more than {2 ** num_bits} unique values but has '
+                                      f'{len(channel_slice_i.unique())} unique values')
             self.unit_test.assertTrue(0 in channel_slice_i.unique(),
-                            f'zero should be in quantization range, but quantized values are in set: {channel_slice_i.unique()}')
+                                      f'zero should be in quantization range, but quantized values are in set: {channel_slice_i.unique()}')

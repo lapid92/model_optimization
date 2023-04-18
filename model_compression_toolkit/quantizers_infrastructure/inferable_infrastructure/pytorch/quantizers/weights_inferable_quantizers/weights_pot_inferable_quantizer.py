@@ -37,7 +37,8 @@ if FOUND_TORCH:
                      num_bits: int,
                      threshold: np.ndarray,
                      per_channel: bool,
-                     channel_axis: int = None
+                     channel_axis: int = None,
+                     input_rank: int = None
                      ):
             """
             Initialize the quantizer with the specified parameters.
@@ -47,12 +48,14 @@ if FOUND_TORCH:
                 threshold: threshold for quantizing activations
                 per_channel: whether to use per-channel quantization
                 channel_axis: Axis of input to apply per-channel quantization on.
+                input_rank: number of dimensions of input tensor the quantizer quantizes
             """
             # target of Weights quantization
             super(WeightsPOTInferableQuantizer, self).__init__(num_bits=num_bits,
                                                                threshold=threshold,
                                                                per_channel=per_channel,
-                                                               channel_axis=channel_axis)
+                                                               channel_axis=channel_axis,
+                                                               input_rank=input_rank)
 
             is_threshold_pot = np.all(np.round(np.log2(threshold.flatten()))==np.log2(threshold.flatten()))
             assert is_threshold_pot, f'Expected threshold to be power of 2 but is {threshold}'

@@ -112,7 +112,8 @@ class STEUniformWeightQATQuantizer(BasePytorchQATTrainableQuantizer):
         return WeightsUniformInferableQuantizer(num_bits=self.num_bits,
                                                 min_range=_min, max_range=_max,
                                                 per_channel=self.quantization_config.weights_per_channel_threshold,
-                                                channel_axis=self.quantization_config.weights_channels_axis)
+                                                channel_axis=self.quantization_config.weights_channels_axis,
+                                                input_rank=len(self.min_max_shape))
 
 
 @mark_quantizer(quantization_target=qi.QuantizationTarget.Activation,

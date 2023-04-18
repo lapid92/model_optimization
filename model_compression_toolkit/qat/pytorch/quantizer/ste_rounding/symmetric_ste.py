@@ -22,7 +22,8 @@ from model_compression_toolkit.core.common.target_platform import QuantizationMe
 from model_compression_toolkit.qat.common import THRESHOLD_TENSOR
 from model_compression_toolkit import quantizers_infrastructure as qi, TrainingMethod
 from model_compression_toolkit.qat.pytorch.quantizer.base_pytorch_qat_quantizer import BasePytorchQATTrainableQuantizer
-from model_compression_toolkit.quantizers_infrastructure.inferable_infrastructure.common.base_inferable_quantizer import mark_quantizer
+from model_compression_toolkit.quantizers_infrastructure.inferable_infrastructure.common.base_inferable_quantizer import \
+    mark_quantizer
 from model_compression_toolkit.core.common import constants as C
 from model_compression_toolkit.core.pytorch.utils import to_torch_tensor
 from model_compression_toolkit.qat.pytorch.quantizer.quantizer_utils import ste_round, ste_clip, symmetric_quantizer
@@ -31,7 +32,8 @@ from model_compression_toolkit.quantizers_infrastructure.inferable_infrastructur
     ActivationSymmetricInferableQuantizer
 from model_compression_toolkit.quantizers_infrastructure.trainable_infrastructure.common.trainable_quantizer_config import \
     TrainableQuantizerWeightsConfig, TrainableQuantizerActivationConfig
-from model_compression_toolkit.quantizers_infrastructure.trainable_infrastructure.common.base_trainable_quantizer import VariableGroup
+from model_compression_toolkit.quantizers_infrastructure.trainable_infrastructure.common.base_trainable_quantizer import \
+    VariableGroup
 
 
 @mark_quantizer(quantization_target=qi.QuantizationTarget.Weights,
@@ -68,7 +70,6 @@ class STEWeightQATQuantizer(BasePytorchQATTrainableQuantizer):
         self.min = delta * self.min_int
         self.max = delta * self.max_int
 
-
     def initialize_quantization(self,
                                 tensor_shape: torch.Size,
                                 name: str,
@@ -87,8 +88,8 @@ class STEWeightQATQuantizer(BasePytorchQATTrainableQuantizer):
                                                                              requires_grad=False))
 
         # save the quantizer added parameters for later calculations
-        self.add_quantizer_variable(THRESHOLD_TENSOR, layer.get_parameter(name + "_" + THRESHOLD_TENSOR), VariableGroup.QPARAMS)
-
+        self.add_quantizer_variable(THRESHOLD_TENSOR, layer.get_parameter(name + "_" + THRESHOLD_TENSOR),
+                                    VariableGroup.QPARAMS)
 
     def __call__(self,
                  inputs: nn.Parameter,
@@ -119,13 +120,14 @@ class STEWeightQATQuantizer(BasePytorchQATTrainableQuantizer):
             return WeightsPOTInferableQuantizer(num_bits=self.num_bits,
                                                 threshold=pot_threshold,
                                                 per_channel=self.quantization_config.weights_per_channel_threshold,
-                                                channel_axis=self.quantization_config.weights_channels_axis)
+                                                channel_axis=self.quantization_config.weights_channels_axis,
+                                                input_rank=len(self.threshold_shape))
         else:
             return WeightsSymmetricInferableQuantizer(num_bits=self.num_bits,
                                                       threshold=np_threshold,
                                                       per_channel=self.quantization_config.weights_per_channel_threshold,
-                                                      channel_axis=self.quantization_config.weights_channels_axis)
-
+                                                      channel_axis=self.quantization_config.weights_channels_axis,
+                                                      input_rank=len(self.threshold_shape))
 
 
 @mark_quantizer(quantization_target=qi.QuantizationTarget.Activation,

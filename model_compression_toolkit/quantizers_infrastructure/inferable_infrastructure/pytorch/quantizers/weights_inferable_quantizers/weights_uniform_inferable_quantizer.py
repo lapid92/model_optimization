@@ -42,7 +42,8 @@ if FOUND_TORCH:
                      min_range: np.ndarray,
                      max_range: np.ndarray,
                      per_channel: bool,
-                     channel_axis: int = None
+                     channel_axis: int = None,
+                     input_rank: int = None
                      ):
             """
             Initialize the quantizer with the specified parameters.
@@ -53,6 +54,7 @@ if FOUND_TORCH:
                 max_range: max quantization range for quantizing weights
                 per_channel: whether to use per-channel quantization
                 channel_axis: Axis of input to apply per-channel quantization on.
+                input_rank: number of dimensions of input tensor the quantizer quantizes
             """
             super(WeightsUniformInferableQuantizer, self).__init__(num_bits=num_bits,
                                                                    min_range=min_range,
@@ -64,6 +66,7 @@ if FOUND_TORCH:
 
             self.per_channel = per_channel
             self.channel_axis = channel_axis
+            self.input_rank = input_rank
 
             min_range, max_range = fix_range_to_include_zero(min_range,
                                                              max_range,
@@ -73,8 +76,17 @@ if FOUND_TORCH:
             self.zero_points = -(
                         min_range / self.scales).int()  # zp has to be positive, and a <=0, so we multiply by -1
 
-            self.scales = self.scales.to(get_working_device())
-            self.zero_points = self.zero_points.to(get_working_device())
+            if per_channel:
+                assert input_rank is not None, f'Input rank is missing in per channel quantization'
+                assert channel_axis is not None, f'Channel axis is missing in per channel quantization'
+                self.reshape_vec = list(torch.ones(self.input_rank, dtype=torch.int32))
+                self.reshape_vec[channel_axis] = self.scales.size().numel()
+                self.scales = to_torch_tensor(self.scales.reshape(tuple(self.reshape_vec))).to(get_working_device())
+                self.zero_points = to_torch_tensor(self.zero_points.reshape(self.reshape_vec)).to(get_working_device())
+            else:
+                self.reshape_vec = None
+                self.scales = to_torch_tensor(self.scales).to(get_working_device())
+                self.zero_points = to_torch_tensor(self.zero_points).to(get_working_device())
 
         def __call__(self,
                      inputs: torch.Tensor) -> torch.Tensor:
@@ -87,18 +99,9 @@ if FOUND_TORCH:
                 quantized weights
             """
             inputs.requires_grad = False
-            if self.per_channel:
-                return torch.fake_quantize_per_channel_affine(inputs,
-                                                              self.scales.flatten(),
-                                                              self.zero_points.flatten(),
-                                                              axis=self.channel_axis,
-                                                              quant_min=self.min_quantized_domain,
-                                                              quant_max=self.max_quantized_domain)
-            return torch.fake_quantize_per_tensor_affine(inputs,
-                                                         self.scales,
-                                                         self.zero_points,
-                                                         quant_min=self.min_quantized_domain,
-                                                         quant_max=self.max_quantized_domain)
+            return (torch.clamp(torch.round(inputs / self.scales + self.zero_points),
+                                self.min_quantized_domain, self.max_quantized_domain) -
+                    self.zero_points) * self.scales
 
 
 else:
