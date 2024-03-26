@@ -266,7 +266,9 @@ def coco_dataset_generator(dataset_folder: str, annotation_file: str, preprocess
             # Check if the current batch is of the desired batch size
             if len(batch_images) == batch_size:
                 # Yield the current batch
-                yield np.array(batch_images), batch_annotations
+                # yield np.array(batch_images), batch_annotations
+                batch_images = preprocess(batch_images)
+                yield batch_images, batch_annotations
 
                 # Reset the batch lists for the next batch
                 batch_images = []
@@ -274,7 +276,8 @@ def coco_dataset_generator(dataset_folder: str, annotation_file: str, preprocess
 
         # After processing all images, yield any remaining images in the last batch
         if len(batch_images) > 0 and (total_images == image_count + 1):
-            yield np.array(batch_images), batch_annotations
+            # yield np.array(batch_images), batch_annotations
+            yield batch_images, batch_annotations
 
 
 def coco_evaluate(model: Any, preprocess: Callable, dataset_folder: str, annotation_file: str, batch_size: int,
