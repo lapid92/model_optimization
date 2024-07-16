@@ -480,7 +480,10 @@ class VitTiny(nn.Module, PyTorchModelHubMixin):
         # zero_tensor[:, 0, :] = self.cls_token
         # to_cat = [zero_tensor]
         x = torch.cat(to_cat + [x], dim=1)
+<<<<<<< HEAD
         # x = torch.cat([self.cls_token] + [x], dim=1)
+=======
+>>>>>>> Vit tiny first commit
         x = x + pos_embed
 
         return self.pos_drop(x)
@@ -508,6 +511,7 @@ class VitTiny(nn.Module, PyTorchModelHubMixin):
     def save_pretrained(self, save_directory, **kwargs):
         # Call the original save_pretrained method
         super().save_pretrained(save_directory, **kwargs)
+<<<<<<< HEAD
 
 class VitTiny_no_cls_token(nn.Module, PyTorchModelHubMixin):
     def __init__(self):
@@ -619,3 +623,5 @@ class VitTiny_no_cls_token(nn.Module, PyTorchModelHubMixin):
     def save_pretrained(self, save_directory, **kwargs):
         # Call the original save_pretrained method
         super().save_pretrained(save_directory, **kwargs)
+=======
+>>>>>>> Vit tiny first commit
