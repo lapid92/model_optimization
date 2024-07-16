@@ -49,6 +49,7 @@ from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.fu
     FunctionalBatchNorm
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.functional_layer_norm import \
     FunctionalLayerNorm
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.layer_norm_subs import LayerNormSubs
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.linear_collapsing import \
     pytorch_linear_collapsing
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.multi_head_attention_decomposition \
@@ -253,7 +254,9 @@ class PytorchImplementation(FrameworkImplementation):
         Returns: A list of the framework substitutions used before we build a quantized module.
         """
         substitutions_list = [pytorch_batchnorm_folding(),
-                              pytorch_batchnorm_forward_folding()]
+                              pytorch_batchnorm_forward_folding(),
+                              # LayerNormSubs()
+                              ]
         if quant_config.relu_bound_to_power_of_2:
             substitutions_list.append(ReLUBoundToPowerOfTwo())
         return substitutions_list
