@@ -480,6 +480,7 @@ class VitTiny(nn.Module, PyTorchModelHubMixin):
         # zero_tensor[:, 0, :] = self.cls_token
         # to_cat = [zero_tensor]
         x = torch.cat(to_cat + [x], dim=1)
+        # x = torch.cat([self.cls_token] + [x], dim=1)
         x = x + pos_embed
 
         return self.pos_drop(x)
@@ -495,6 +496,117 @@ class VitTiny(nn.Module, PyTorchModelHubMixin):
 
     def forward_head(self, x: torch.Tensor, pre_logits: bool = False) -> torch.Tensor:
         x = x[:, 0]  # class token
+        x = self.fc_norm(x)
+        x = self.head_drop(x)
+        return x if pre_logits else self.head(x)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.forward_features(x)
+        x = self.forward_head(x)
+        return x
+
+    def save_pretrained(self, save_directory, **kwargs):
+        # Call the original save_pretrained method
+        super().save_pretrained(save_directory, **kwargs)
+
+class VitTiny_no_cls_token(nn.Module, PyTorchModelHubMixin):
+    def __init__(self):
+        super().__init__()
+        img_size = (224, 224)
+        patch_size = 16
+        in_chans = 3
+        embed_dim = 192
+        self.global_pool = 'avg'
+
+        self.patch_embed = PatchEmbed(
+            img_size=img_size,
+            patch_size=patch_size,
+            in_chans=in_chans,
+            embed_dim=embed_dim,
+            bias=True,
+        )
+
+        num_patches = 196
+        reduction = 16
+        self.cls_token = None
+        self.reg_token = None
+        self.num_prefix_tokens = 0
+        embed_len = num_patches + self.num_prefix_tokens
+        self.pos_embed = nn.Parameter(torch.randn(1, embed_len, embed_dim) * .02)
+        self.embed_dim = embed_dim
+        self.pos_drop = nn.Dropout(p=0.0)
+        self.patch_drop = nn.Identity()
+        self.norm_pre = nn.Identity()
+        depth = 12
+        num_heads = 3
+        num_classes = 1000
+        self.num_classes = num_classes
+        mlp_ratio = 4.0
+        proj_drop_rate = 0.0
+        attn_drop_rate = 0.0
+        drop_rate = 0.0
+        norm_layer = partial(nn.LayerNorm, eps=1e-6)
+        # act_layer = nn.GELU
+        act_layer = MyGELU
+        mlp_layer = Mlp
+
+        self.blocks = nn.Sequential(*[
+            Block(
+                dim=embed_dim,
+                num_heads=num_heads,
+                mlp_ratio=mlp_ratio,
+                qkv_bias=True,
+                qk_norm=False,
+                proj_drop=proj_drop_rate,
+                attn_drop=attn_drop_rate,
+                norm_layer=norm_layer,
+                act_layer=act_layer,
+                mlp_layer=mlp_layer,
+            )
+            for i in range(depth)])
+        self.feature_info = [
+            dict(module=f'blocks.{i}', num_chs=embed_dim, reduction=reduction) for i in range(depth)]
+        self.norm = norm_layer(embed_dim)
+
+        self.fc_norm = nn.Identity()
+        self.head_drop = nn.Dropout(drop_rate)
+        self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+        # We have defined pretrained_cfg to represent the configuration specific to vit pretrained model,
+        # including relevant items for dataset and data loader.
+        self.pretrained_cfg = {
+            'architecture': 'vit_tiny_patch16_224',
+            'tag': 'augreg_in21k_ft_in1k',
+            'custom_load': True,
+            'input_size': (3, 224, 224),
+            'fixed_input_size': True,
+            'interpolation': 'bicubic',
+            'crop_pct': 0.9,
+            'crop_mode': 'center',
+            'mean': (0.5, 0.5, 0.5),
+            'std': (0.5, 0.5, 0.5),
+            'num_classes': 1000,
+            'pool_size': None,
+            'first_conv': 'patch_embed.proj',
+            'classifier': 'head'}
+
+    def _pos_embed(self, x: torch.Tensor) -> torch.Tensor:
+        pos_embed = self.pos_embed
+        x = x + pos_embed
+
+        return self.pos_drop(x)
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.patch_embed(x)
+        x = self._pos_embed(x)
+        x = self.patch_drop(x)
+        x = self.norm_pre(x)
+        x = self.blocks(x)
+        x = self.norm(x)
+        return x
+
+    def forward_head(self, x: torch.Tensor, pre_logits: bool = False) -> torch.Tensor:
+        x = x[:, self.num_prefix_tokens:].mean(dim=1)
         x = self.fc_norm(x)
         x = self.head_drop(x)
         return x if pre_logits else self.head(x)
