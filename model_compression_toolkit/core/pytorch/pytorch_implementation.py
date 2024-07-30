@@ -38,20 +38,26 @@ from model_compression_toolkit.core.common.node_prior_info import NodePriorInfo
 from model_compression_toolkit.core.common.similarity_analyzer import compute_mse, compute_kl_divergence, compute_cs
 from model_compression_toolkit.core.pytorch.back2framework import get_pytorch_model_builder
 from model_compression_toolkit.core.pytorch.default_framework_info import DEFAULT_PYTORCH_INFO
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.add_act_16 import AddShortCutBits
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.batchnorm_folding import \
     pytorch_batchnorm_folding, pytorch_batchnorm_forward_folding
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.batchnorm_reconstruction import \
     pytorch_batchnorm_reconstruction
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.batchnorm_refusing import \
     pytorch_batchnorm_refusing
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.fc_add_shortcut_act_16 import \
+    FCAddShortCutBits
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.functional_batch_norm import \
     FunctionalBatchNorm
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.functional_layer_norm import \
     FunctionalLayerNorm
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.linear_collapsing import \
     pytorch_linear_collapsing
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.linear_mul_folding import \
+    pytorch_linear_mul_folding
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.multi_head_attention_decomposition \
     import MultiHeadAttentionDecomposition
+from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.remove_dropout import RemoveDropout
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.transform_function_call_method import \
     TransformFunctionCallMethod
 from model_compression_toolkit.core.pytorch.graph_substitutions.substitutions.const_holder_conv import \
@@ -240,7 +246,8 @@ class PytorchImplementation(FrameworkImplementation):
                 FunctionalConvSubstitution(fw_info),
                 FunctionalBatchNorm(),
                 FunctionalLayerNorm(),
-                RemoveIdentity()]
+                RemoveIdentity(),
+                RemoveDropout()]
 
     def get_substitutions_pre_statistics_collection(self,
                                                     quant_config: QuantizationConfig
@@ -252,7 +259,9 @@ class PytorchImplementation(FrameworkImplementation):
         Returns: A list of the framework substitutions used before we build a quantized module.
         """
         substitutions_list = [pytorch_batchnorm_folding(),
-                              pytorch_batchnorm_forward_folding()]
+                              pytorch_batchnorm_forward_folding(),
+                              # pytorch_linear_mul_folding()
+                              ]
         if quant_config.relu_bound_to_power_of_2:
             substitutions_list.append(ReLUBoundToPowerOfTwo())
         return substitutions_list
@@ -308,8 +317,20 @@ class PytorchImplementation(FrameworkImplementation):
             Logger.critical('Input scaling is currently not supported for Pytorch.')
         if quant_config.concat_threshold_update:
             substitutions_list.append(ConcatThresholdUpdate())
+        # if quant_config.add_act_16:
+        #     substitutions_list.append(AddShortCutBits())
+        # if quant_config.fc_add_shortcut_act_16:
+        #     substitutions_list.append(FCAddShortCutBits())
         return substitutions_list
 
+    def get_substitutions_add_act_16(self,
+                                     quant_config: QuantizationConfig) -> List[common.BaseSubstitution]:
+        substitutions_list = []
+        if quant_config.add_act_16:
+            substitutions_list.append(AddShortCutBits())
+        if quant_config.fc_add_shortcut_act_16:
+            substitutions_list.append(FCAddShortCutBits())
+        return substitutions_list
 
     def get_substitutions_virtual_weights_activation_coupling(self) -> List[common.BaseSubstitution]:
         """

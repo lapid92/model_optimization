@@ -77,6 +77,9 @@ def quantization_preparation_runner(graph: Graph,
     if tb_w is not None:
         tb_w.add_graph(graph, 'after_statistic_collection')
 
+    graph = substitute(graph,
+                       fw_impl.get_substitutions_add_act_16(core_config.quantization_config))
+
     ######################################
     # Edit network according to user
     # specific settings
@@ -100,7 +103,8 @@ def quantization_preparation_runner(graph: Graph,
     # Graph substitution (post statistics collection)
     ######################################
     transformed_graph = substitute(graph,
-                                   fw_impl.get_substitutions_post_statistics_collection(core_config.quantization_config))
+                                   fw_impl.get_substitutions_post_statistics_collection(
+                                       core_config.quantization_config))
 
     ######################################
     # Shift Negative Activations

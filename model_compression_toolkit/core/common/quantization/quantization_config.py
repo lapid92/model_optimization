@@ -66,7 +66,9 @@ class QuantizationConfig:
                  shift_negative_ratio: float = 0.05,
                  shift_negative_threshold_recalculation: bool = False,
                  shift_negative_params_search: bool = False,
-                 concat_threshold_update: bool = False):
+                 concat_threshold_update: bool = False,
+                 add_act_16: bool = False,
+                 fc_add_shortcut_act_16: bool = False):
         """
         Class to wrap all different parameters the library quantize the input model according to.
 
@@ -122,6 +124,8 @@ class QuantizationConfig:
         self.shift_negative_threshold_recalculation = shift_negative_threshold_recalculation
         self.shift_negative_params_search = shift_negative_params_search
         self.concat_threshold_update = concat_threshold_update
+        self.add_act_16 = add_act_16
+        self.fc_add_shortcut_act_16 = fc_add_shortcut_act_16
 
     def __repr__(self):
         # Used for debugging, thus no cover.

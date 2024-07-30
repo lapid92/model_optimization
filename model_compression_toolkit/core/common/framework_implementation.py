@@ -250,6 +250,10 @@ class FrameworkImplementation(ABC):
         raise NotImplemented(f'{self.__class__.__name__} have to implement the '
                              f'framework\'s get_residual_collapsing_substitution method.')  # pragma: no cover
 
+    def get_substitutions_add_act_16(self,
+                                     quant_config: QuantizationConfig) -> List[common.BaseSubstitution]:
+        raise NotImplemented(f'{self.__class__.__name__} have to implement the '
+                             f'framework\'s get_residual_collapsing_substitution method.')  # pragma: no cover
 
     @abstractmethod
     def get_substitutions_post_statistics_collection(self, quant_config: QuantizationConfig) -> List[
@@ -349,10 +353,10 @@ class FrameworkImplementation(ABC):
                              f'framework\'s count_node_for_mixed_precision_interest_points method.')  # pragma: no cover
 
     def get_mp_node_distance_fn(self, layer_class: type,
-                             framework_attrs: Dict[str, Any],
-                             compute_distance_fn: Callable = None,
-                             axis: int = None,
-                             norm_mse: bool = False) -> Callable:
+                                framework_attrs: Dict[str, Any],
+                                compute_distance_fn: Callable = None,
+                                axis: int = None,
+                                norm_mse: bool = False) -> Callable:
         """
         A mapping between layers' types and a distance function for computing the distance between
         two tensors in mixed precision (for loss computation purposes). Returns a specific function if node of specific types is
@@ -370,7 +374,6 @@ class FrameworkImplementation(ABC):
 
         raise NotImplemented(f'{self.__class__.__name__} have to implement the '
                              f'framework\'s get_mp_node_distance_fn method.')  # pragma: no cover
-
 
     @abstractmethod
     def is_output_node_compatible_for_hessian_score_computation(self,
