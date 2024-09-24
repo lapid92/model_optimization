@@ -82,7 +82,8 @@ def get_op_quantization_configs() -> \
         weights_quantization_method=tp.QuantizationMethod.POWER_OF_TWO,
         weights_n_bits=8,
         weights_per_channel_threshold=False,
-        enable_weights_quantization=False,  # TODO: this will changed to True once implementing multi-attributes quantization
+        enable_weights_quantization=False,
+        # TODO: this will changed to True once implementing multi-attributes quantization
         lut_values_bitwidth=None)
 
     # define a quantization config to quantize the kernel (for layers where there is a kernel attribute).
@@ -183,6 +184,13 @@ def generate_tp_model(default_config: OpQuantizationConfig,
             enable_weights_quantization=True, weights_per_channel_threshold=True,
             weights_quantization_method=tp.QuantizationMethod.POWER_OF_TWO))
     const_configuration_options = tp.QuantizationConfigOptions([const_config])
+    expand_config = default_config.clone_and_edit(
+        default_weight_attr_config=default_config.default_weight_attr_config.clone_and_edit(
+            enable_weights_quantization=True, weights_per_channel_threshold=False,
+            weights_quantization_method=tp.QuantizationMethod.POWER_OF_TWO),
+        enable_activation_quantization=False,
+        quantization_preserving=True)
+    expand_configuration_options = tp.QuantizationConfigOptions([expand_config])
 
     # 16 bits inputs and outputs. Currently, only defined for consts since they are used in operators that
     # support 16 bit as input and output.
@@ -202,9 +210,10 @@ def generate_tp_model(default_config: OpQuantizationConfig,
     )
     const_config_input16_output16_per_tensor = const_config_input16_per_tensor.clone_and_edit(
         activation_n_bits=16, signedness=Signedness.SIGNED)
-    const_configuration_options_inout16_per_tensor = tp.QuantizationConfigOptions([const_config_input16_output16_per_tensor,
-                                                                                   const_config_input16_per_tensor],
-                                                                                  base_config=const_config_input16_per_tensor)
+    const_configuration_options_inout16_per_tensor = tp.QuantizationConfigOptions(
+        [const_config_input16_output16_per_tensor,
+         const_config_input16_per_tensor],
+        base_config=const_config_input16_per_tensor)
 
     qpreserving_const_config = const_config.clone_and_edit(enable_activation_quantization=False,
                                                            quantization_preserving=True)
@@ -228,6 +237,8 @@ def generate_tp_model(default_config: OpQuantizationConfig,
 
         # May suit for operations like: Dropout, Reshape, etc.
         default_qco = tp.get_default_quantization_config_options()
+        tp.OperatorsSet("Expand",
+                        expand_configuration_options)
         tp.OperatorsSet(OPSET_NO_QUANTIZATION,
                         default_qco.clone_and_edit(enable_activation_quantization=False)
                         .clone_and_edit_weight_attribute(enable_weights_quantization=False))

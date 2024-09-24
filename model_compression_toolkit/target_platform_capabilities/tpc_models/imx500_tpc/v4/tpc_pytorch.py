@@ -90,6 +90,8 @@ def generate_pytorch_tpc(name: str, tp_model: tp.TargetPlatformModel):
         tp.OperationsSetToLayers(OPSET_DIMENSION_MANIPULATION_OPS_WITH_WEIGHTS, [gather])
         tp.OperationsSetToLayers(OPSET_MERGE_OPS,
                                  [torch.stack, torch.cat, torch.concat, torch.concatenate])
+        tp.OperationsSetToLayers("Expand",
+                                 [torch.Tensor.expand])
 
         tp.OperationsSetToLayers(OPSET_CONV, [Conv2d, ConvTranspose2d],
                                  attr_mapping=pytorch_linear_attr_mapping)

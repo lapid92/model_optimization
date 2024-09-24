@@ -129,6 +129,14 @@ def _run_operation(n: BaseNode,
     # Insert positional weights only when not a quantized functional node, because quantized functional nodes
     # insert the quantized weights in the wrapper.
     if isinstance(n, FunctionalNode) and isinstance(op_func, PytorchQuantizationWrapper):
+        # # _tensor_input_allocs = [i for i in n.tensor_input_allocs if i not in n.weights]
+        # _tensor_input_allocs = []
+        # removed_weights = 0
+        # for i in n.tensor_input_allocs:
+        #     if i in n.weights:
+        #         removed_weights += 1
+        #     else:
+        #         _tensor_input_allocs.append(i-removed_weights)
         _tensor_input_allocs = [i for i in n.tensor_input_allocs if i not in n.weights]
     else:
         input_tensors = n.insert_positional_weights_to_input_list(input_tensors)
@@ -150,6 +158,11 @@ def _run_operation(n: BaseNode,
             # Temporary patch: for torch.gather this is not the case, so need to merge inputs.
             out_tensors_of_n_float = op_func(*input_tensors)
         else:
+        # if isinstance(op_func, PytorchQuantizationWrapper):
+        #     # in wrapped nodes, the op args & kwargs are already in the PytorchQuantizationWrapper.
+        #     out_tensors_of_n_float = op_func(*input_tensors)
+        # else:
+
             merged_inputs, functional_kwargs = _merge_inputs(n, input_tensors, op_call_args, functional_kwargs.copy(),
                                                              tensor_input_allocs=_tensor_input_allocs)
             out_tensors_of_n_float = op_func(*merged_inputs, **functional_kwargs)
