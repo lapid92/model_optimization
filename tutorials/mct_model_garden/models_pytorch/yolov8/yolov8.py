@@ -48,9 +48,13 @@ from huggingface_hub import PyTorchModelHubMixin
 import importlib
 
 from model_compression_toolkit.core.pytorch.pytorch_device_config import get_working_device
-from tutorials.mct_model_garden.models_pytorch.yolov8.yolov8_postprocess import postprocess_yolov8_keypoints
+from sony_custom_layers.pytorch import multiclass_nms_with_indices
+from tutorials.mct_model_garden.models_pytorch.yolov8.postprocess_yolov8_seg import new_multiclass_nms_seg
+from tutorials.mct_model_garden.models_pytorch.yolov8.yolov8_postprocess import postprocess_yolov8_keypoints, \
+    new_postprocess_yolov8_keypoints, reduced_postprocess_yolov8_keypoints
+
 if importlib.util.find_spec("sony_custom_layers"):
-    from sony_custom_layers.pytorch.object_detection.nms import multiclass_nms
+    from sony_custom_layers.pytorch.nms.nms import multiclass_nms
 
 
 def yaml_load(file: str = 'data.yaml', append_filename: bool = False) -> Dict[str, any]:
@@ -311,6 +315,12 @@ class Detect_wo_bb_dec(nn.Module):
         self.cv3 = nn.ModuleList(nn.Sequential(Conv(x, c3, 3), Conv(c3, c3, 3),
                                                nn.Conv2d(c3, self.nc, 1)) for x in ch)
         self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+        anchors, strides = (x.transpose(0, 1) for x in make_anchors(self.feat_sizes,
+                                                                    self.stride, 0.5))
+        anchors = anchors * strides
+
+        self.register_buffer('anchors', anchors)
+        self.register_buffer('strides', strides)
 
     def forward(self, x: Tensor) -> Tuple[Tensor, Tensor]:
         shape = x[0].shape  # BCHW
@@ -320,9 +330,17 @@ class Detect_wo_bb_dec(nn.Module):
             (self.reg_max * 4, self.nc), 1)
 
         y_cls = cls.sigmoid()
-        y_bb = self.dfl(box)
-        return y_bb, y_cls
+        dfl = self.dfl(box)
+        dfl = dfl * self.strides
 
+        # box decoding
+        lt, rb = dfl.chunk(2, 1)
+        y1 = self.anchors.unsqueeze(0)[:, 0, :] - lt[:, 0, :]
+        x1 = self.anchors.unsqueeze(0)[:, 1, :] - lt[:, 1, :]
+        y2 = self.anchors.unsqueeze(0)[:, 0, :] + rb[:, 0, :]
+        x2 = self.anchors.unsqueeze(0)[:, 1, :] + rb[:, 1, :]
+        y_bb = torch.stack((x1, y1, x2, y2), 1)
+        return y_bb, y_cls
 
     def bias_init(self):
         """Initialize Detect() biases, WARNING: requires stride availability."""
@@ -331,7 +349,8 @@ class Detect_wo_bb_dec(nn.Module):
             a[-1].bias.data[:] = 1.0  # box
             b[-1].bias.data[: m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
 
-class Pose(Detect_wo_bb_dec):
+
+class OldPose(Detect_wo_bb_dec):
     """YOLOv8 Pose head for keypoints models."""
 
     def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
@@ -350,6 +369,76 @@ class Pose(Detect_wo_bb_dec):
         kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)  # (bs, 17*3, h*w)
         y_bb, y_cls = self.detect(self, x)
         return y_bb, y_cls, kpt
+
+
+class Pose(Detect):
+    """YOLOv8 Pose head for keypoints models."""
+
+    def __init__(self, nc=80, kpt_shape=(17, 3), ch=()):
+        """Initialize YOLO network with default parameters and Convolutional Layers."""
+        super().__init__(nc, ch)
+        self.kpt_shape = kpt_shape  # number of keypoints, number of dims (2 for x,y or 3 for x,y,visible)
+        self.nk = kpt_shape[0] * kpt_shape[1]  # number of keypoints total
+        self.detect = Detect.forward
+
+        c4 = max(ch[0] // 4, self.nk)
+        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nk, 1)) for x in ch)
+
+        # anchors, strides = (x.transpose(0, 1) for x in make_anchors(self.feat_sizes,
+        #                                                             self.stride, 0.5))
+        # anchors = anchors
+        #
+        # self.register_buffer('kanchors', anchors)
+        # self.register_buffer('key_strides', strides)
+        # anchors, strides = (x.transpose(0, 1) for x in make_anchors(self.feat_sizes,
+        #                                                             self.stride, 0.5))
+        # anchors = anchors * strides
+        # self.anchors = anchors
+        # self.key_strides = strides
+        # self.anchors = self.anchors * self.img_size
+        # self.strides = self.strides * self.img_size
+
+    def forward(self, x):
+        """Perform forward pass through YOLO model and return predictions."""
+        bs = x[0].shape[0]  # batch size
+        kpt = torch.cat([self.cv4[i](x[i]).view(bs, self.nk, -1) for i in range(self.nl)], -1)  # (bs, 17*3, h*w)
+        y_bb, y_cls = self.detect(self, x)
+
+        # Sigmoid transformation (for pred_kpt[:, 2::3])
+        # sigmoid_transformed = 1 / (1 + torch.exp(-kpt[:, 2::3]))
+        sigmoid_transformed = kpt[:, 2::3].sigmoid()
+
+        # Update the x coordinates (pred_kpt[:, 0::3])
+        # updated_x = (kpt[:, 0::3] * 2.0 + (self.kanchors[0] - 0.5)) * self.kstrides
+        # updated_x = kpt[:, 0::3] * 2.0 * self.key_strides + self.kanchors[0] * self.key_strides - 0.5 * self.key_strides
+        # updated_x = kpt[:, 0::3] * 2.0 * self.strides * self.img_size + (
+        #         self.anchors[0] - 0.5 * self.strides) * self.img_size
+
+        # updated_x = kpt[:, 0::3] * 2.0 * self.strides + (
+        #             self.anchors[0] - 0.5 * self.strides)
+
+        s640 = self.strides / 640
+        a0_640 = self.anchors[0] / 640
+        updated_x = kpt[:, 0::3] * 2.0 * s640 + (
+                    a0_640 - 0.5 * s640)
+
+        # Update the y coordinates (pred_kpt[:, 1::3])
+        # updated_y = (kpt[:, 1::3] * 2.0 + (self.kanchors[1] - 0.5)) * self.kstrides
+        # updated_y = kpt[:, 1::3] * 2.0 * self.key_strides + self.kanchors[1] * self.key_strides - 0.5 * self.key_strides
+        # updated_y = kpt[:, 1::3] * 2.0 * self.strides * self.img_size + (
+        #         self.anchors[1] - 0.5 * self.strides) * self.img_size
+        # updated_y = kpt[:, 1::3] * 2.0 * self.strides + (
+        #             self.anchors[1] - 0.5 * self.strides)
+
+        a1_640 = self.anchors[1] / 640
+        updated_y = kpt[:, 1::3] * 2.0 * s640 + (
+                    a1_640 - 0.5 * s640)
+
+        # Reconstruct pred_kpt by concatenating the updated x, y, and sigmoid-transformed parts
+        kpt = torch.stack([updated_x, updated_y, sigmoid_transformed], dim=-1).permute(0, 1, 3, 2).reshape(
+            kpt.shape).permute(0, 2, 1)
+        return y_bb, y_cls, kpt
+
 
 def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     """Parse a YOLO model.yaml dictionary into a PyTorch model."""
@@ -411,6 +500,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         ch.append(c2)
     return nn.Sequential(*layers), sorted(save)
 
+
 def initialize_weights(model):
     """Initialize model weights to random values."""
     for m in model.modules():
@@ -422,6 +512,7 @@ def initialize_weights(model):
             m.momentum = 0.03
         elif t in [nn.Hardswish, nn.LeakyReLU, nn.ReLU, nn.ReLU6, nn.SiLU]:
             m.inplace = True
+
 
 def model_predict(model: Any,
                   inputs: np.ndarray) -> List:
@@ -447,6 +538,7 @@ def model_predict(model: Any,
     # Detach outputs and move to cpu
     outputs = outputs.cpu().detach()
     return outputs
+
 
 class PostProcessWrapper(nn.Module):
     def __init__(self,
@@ -479,6 +571,47 @@ class PostProcessWrapper(nn.Module):
                              iou_threshold=self.iou_threshold, max_detections=self.max_detections)
         return nms
 
+
+class KeyPointsPostProcessWrapper(nn.Module):
+    def __init__(self,
+                 model: nn.Module,
+                 score_threshold: float = 0.001,
+                 iou_threshold: float = 0.7,
+                 max_detections: int = 300):
+        """
+        Wrapping PyTorch Module with multiclass_nms layer from sony_custom_layers.
+
+        Args:
+            model (nn.Module): Model instance.
+            score_threshold (float): Score threshold for non-maximum suppression.
+            iou_threshold (float): Intersection over union threshold for non-maximum suppression.
+            max_detections (float): The number of detections to return.
+        """
+        super(KeyPointsPostProcessWrapper, self).__init__()
+        self.model = model
+        self.score_threshold = score_threshold
+        self.iou_threshold = iou_threshold
+        self.max_detections = max_detections
+
+    def forward(self, images):
+        # model inference
+        outputs = self.model(images)
+
+        boxes = outputs[0]
+        scores = outputs[1]
+        kpts = outputs[2] * 640
+        nms = multiclass_nms_with_indices(boxes=boxes, scores=scores, score_threshold=self.score_threshold,
+                                          iou_threshold=self.iou_threshold, max_detections=self.max_detections)
+        idx = nms.indices
+        indices_expanded = idx.unsqueeze(-1).expand(-1, -1, kpts.size(-1))
+        out_kpts = torch.gather(kpts, 1, indices_expanded)
+        # trans_ind = indices_expanded.transpose(1, 2)
+        # tran_kpts = kpts.transpose(1, 2)
+        # tran_out = torch.gather(tran_kpts, -1, trans_ind)
+        # out_kpts = tran_out.transpose(1, 2)
+        return nms.boxes, nms.scores, out_kpts
+
+
 def keypoints_model_predict(model: Any, inputs: np.ndarray) -> List:
     """
     Perform inference using the provided PyTorch model on the given inputs.
@@ -500,12 +633,18 @@ def keypoints_model_predict(model: Any, inputs: np.ndarray) -> List:
     outputs = model(inputs)
 
     # Detach outputs and move to cpu
-    output_np = [o.detach().cpu().numpy() for o in outputs]
+    # output_np = [o.detach().cpu().numpy() for o in outputs]
+    #
+    # return postprocess_yolov8_keypoints(output_np)
 
-    return postprocess_yolov8_keypoints(output_np)
+    # return new_postprocess_yolov8_keypoints(outputs)
+    # return reduced_postprocess_yolov8_keypoints(outputs)
+
+    output_np = [o.detach().cpu().numpy() for o in outputs]
+    return output_np
 
 def seg_model_predict(model: Any,
-                  inputs: np.ndarray) -> List:
+                      inputs: np.ndarray) -> List:
     """
     Perform inference using the provided PyTorch model on the given inputs.
 
@@ -519,13 +658,17 @@ def seg_model_predict(model: Any,
     Returns:
         List: List containing tensors of predictions.
     """
-    input_tensor = torch.from_numpy(inputs).unsqueeze(0)  # Add batch dimension
+    input_tensor = torch.from_numpy(inputs).unsqueeze(0).cuda()  # Add batch dimension
 
     # Run the model
     with torch.no_grad():
         outputs = model(input_tensor)
 
+    # Detach outputs and move to cpu
+    # output_np = [o.detach().cpu().numpy() for o in outputs]
+    # return output_np
     return outputs
+
 
 def yolov8_pytorch(model_yaml: str) -> (nn.Module, Dict):
     """
@@ -569,6 +712,7 @@ def yolov8_pytorch_pp(model_yaml: str,
                                   iou_threshold=iou_threshold,
                                   max_detections=max_detections)
     return model_pp, cfg_dict
+
 
 class Proto(nn.Module):
     """YOLOv8 mask Proto module for segmentation models."""
@@ -624,6 +768,7 @@ class ModelPyTorch(nn.Module, PyTorchModelHubMixin):
         ch (int): Number of input channels.
         mode (str): Mode of operation ('detection' or 'segmentation').
     """
+
     def __init__(self, cfg: dict, ch: int = 3, mode: str = 'detection'):
         super().__init__()
         self.yaml = cfg

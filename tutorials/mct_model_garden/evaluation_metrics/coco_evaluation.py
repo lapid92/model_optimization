@@ -25,7 +25,8 @@ from tqdm import tqdm
 
 from ..models_pytorch.yolov8.yolov8_postprocess import scale_boxes, scale_coords
 from ..models_pytorch.yolov8.yolov8_preprocess import yolov8_preprocess_chw_transpose
-from ..models_pytorch.yolov8.postprocess_yolov8_seg import process_masks, postprocess_yolov8_inst_seg
+from ..models_pytorch.yolov8.postprocess_yolov8_seg import process_masks, postprocess_yolov8_inst_seg, \
+    new_postprocess_yolov8_inst_seg, new_multiclass_nms_seg
 
 
 def coco80_to_coco91(x: np.ndarray) -> np.ndarray:
@@ -532,7 +533,7 @@ def evaluate_yolov8_segmentation(model, model_predict_func, data_dir, data_type=
     results = []
     for img_id in tqdm(img_ids, desc="Processing Images"):
         img = coco.loadImgs(img_id)[0]
-        image_path = os.path.join(data_dir, data_type, img["file_name"])
+        image_path = os.path.join(data_dir, 'images', data_type, img["file_name"])
 
         # Preprocess the image
         input_img = load_and_preprocess_image(image_path, yolov8_preprocess_chw_transpose).astype('float32')
@@ -541,7 +542,11 @@ def evaluate_yolov8_segmentation(model, model_predict_func, data_dir, data_type=
         output = model_predict_func(model, input_img)
 
         #run post processing (nms)
-        boxes, scores, classes, masks = postprocess_yolov8_inst_seg(outputs=output, conf=conf, iou_thres=iou_thresh, max_out_dets=max_dets)
+        # boxes, scores, classes, masks = postprocess_yolov8_inst_seg(outputs=output, conf=conf, iou_thres=iou_thresh, max_out_dets=max_dets)
+        boxes, scores, classes, masks = new_postprocess_yolov8_inst_seg(outputs=output, conf=conf, iou_thres=iou_thresh, max_out_dets=max_dets)
+        # boxes, scores, classes, masks = new_multiclass_nms_seg(outputs=output, conf=conf, iou_thres=iou_thresh, max_out_dets=max_dets)
+
+
 
         if boxes.size == 0:  
             continue

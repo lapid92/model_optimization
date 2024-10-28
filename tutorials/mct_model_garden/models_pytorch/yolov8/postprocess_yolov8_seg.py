@@ -3,10 +3,14 @@ import numpy as np
 import cv2
 from typing import Tuple
 
+from sony_custom_layers.pytorch import multiclass_nms_with_indices
 from tutorials.mct_model_garden.models_pytorch.yolov8.yolov8_postprocess import nms
 
+import torch
 
-def combined_nms_seg(batch_boxes, batch_scores, batch_masks, iou_thres: float = 0.3, conf: float = 0.1, max_out_dets: int = 300):
+
+def combined_nms_seg(batch_boxes, batch_scores, batch_masks, iou_thres: float = 0.3, conf: float = 0.1,
+                     max_out_dets: int = 300):
     """
     Perform combined Non-Maximum Suppression (NMS) and segmentation mask processing for batched inputs.
 
@@ -41,7 +45,8 @@ def combined_nms_seg(batch_boxes, batch_scores, batch_masks, iou_thres: float = 
         # Compute maximum scores and corresponding class indices
         class_indices = np.argmax(scores, axis=1)
         max_scores = np.amax(scores, axis=1)
-        detections = np.concatenate([boxes, np.expand_dims(max_scores, axis=1), np.expand_dims(class_indices, axis=1)], axis=1)
+        detections = np.concatenate([boxes, np.expand_dims(max_scores, axis=1), np.expand_dims(class_indices, axis=1)],
+                                    axis=1)
 
         masks = np.transpose(masks, (1, 0))
         valid_detections = max_scores > conf
@@ -65,7 +70,8 @@ def combined_nms_seg(batch_boxes, batch_scores, batch_masks, iou_thres: float = 
             cls_indices = np.where(detections[:, 5] == cls)[0]
             cls_boxes = detections[cls_indices, :4]
             cls_scores = detections[cls_indices, 4]
-            cls_valid_indices = nms(cls_boxes, cls_scores, iou_thres=iou_thres, max_out_dets=len(cls_indices))  # Use all available for NMS
+            cls_valid_indices = nms(cls_boxes, cls_scores, iou_thres=iou_thres,
+                                    max_out_dets=len(cls_indices))  # Use all available for NMS
             all_indices.extend(cls_indices[cls_valid_indices])
 
         if len(all_indices) == 0:
@@ -90,7 +96,96 @@ def combined_nms_seg(batch_boxes, batch_scores, batch_masks, iou_thres: float = 
 
     return nms_results
 
- 
+
+def new_combined_nms_seg(batch_boxes, batch_scores, batch_masks, iou_thres: float = 0.3, conf: float = 0.1,
+                         max_out_dets: int = 300):
+    nms_results = []
+    for boxes, scores, masks in zip(batch_boxes, batch_scores, batch_masks):
+        # Compute maximum scores and corresponding class indices
+        class_indices = torch.argmax(scores, dim=1)
+        max_scores = torch.amax(scores, dim=1)
+        detections = torch.cat([boxes, max_scores.unsqueeze(1), class_indices.unsqueeze(1)], dim=1)
+
+        masks = masks.transpose(0, 1)
+
+        valid_detections = max_scores > conf
+        detections = detections[valid_detections]
+        masks = masks[valid_detections]
+
+        if len(detections) == 0:
+            nms_results.append((torch.tensor([]), torch.tensor([]), torch.tensor([]), torch.tensor([[]])))
+            continue
+
+        # Sort detections by score in descending order
+        sorted_indices = torch.argsort(-detections[:, 4])
+        detections = detections[sorted_indices]
+        masks = masks[sorted_indices]
+
+        # Perform class-wise NMS
+        unique_classes = torch.unique(detections[:, 5])
+        all_indices = []
+
+        for cls in unique_classes:
+            cls_indices = torch.where(detections[:, 5] == cls)[0]
+            cls_boxes = detections[None, cls_indices, :4]
+            cls_scores = detections[None, cls_indices, 4:5]
+            valid_indices = multiclass_nms_with_indices(boxes=cls_boxes,
+                                                        scores=cls_scores,
+                                                        score_threshold=conf,
+                                                        iou_threshold=iou_thres,
+                                                        max_detections=len(
+                                                            cls_indices))  # Use all available for NMS
+            out_valid = valid_indices.n_valid
+            all_indices.extend(cls_indices[valid_indices.indices[0, :out_valid]])
+
+        if len(all_indices) == 0:
+            nms_results.append((torch.tensor([]), torch.tensor([]), torch.tensor([]), torch.tensor([[]])))
+            continue
+
+        # Sort all indices by score and limit to max_out_dets
+        all_indices = torch.tensor(all_indices).cuda()
+
+        # Sort all_indices by detection scores in descending order
+        all_indices = all_indices[torch.argsort(-detections[all_indices, 4])]
+
+        # Limit the number of final detections to max_out_dets
+        final_indices = all_indices[:max_out_dets]
+
+        final_detections = detections[final_indices]
+        final_masks = masks[final_indices]
+
+        # Extract class indices, bounding boxes, and scores
+        nms_classes = final_detections[:, 5]
+        nms_bbox = final_detections[:, :4]
+        nms_scores = final_detections[:, 4]
+
+        # Append results including masks
+        nms_results.append((nms_bbox, nms_scores, nms_classes, final_masks))
+
+    return nms_results
+
+
+def new_multiclass_nms_seg(batch_boxes, batch_scores, batch_masks, iou_thres: float = 0.3, conf: float = 0.1,
+                           max_out_dets: int = 300):
+    nms_results = []
+    for boxes, scores, masks in zip(batch_boxes, batch_scores, batch_masks):
+        masks = masks.transpose(0, 1)
+        # Compute maximum scores and corresponding class indices
+        valid_indexs = multiclass_nms_with_indices(boxes=boxes[None, :],
+                                                   scores=scores[None, :],
+                                                   score_threshold=conf,
+                                                   iou_threshold=iou_thres,
+                                                   max_detections=max_out_dets)
+        out_valid = valid_indexs.n_valid
+        nms_bbox = valid_indexs.boxes[:, :out_valid, :]
+        nms_scores = valid_indexs.scores[0, :out_valid]
+        nms_classes = valid_indexs.labels[:, :out_valid]
+        # final_masks = masks[valid_indexs.indices[0, :out_valid], 5:]
+        final_masks = masks[valid_indexs.indices[0, :out_valid]]
+        nms_results.append((nms_bbox, nms_scores, nms_classes, final_masks))
+    return nms_results
+
+
 def crop_mask(masks, boxes):
     """
     It takes a mask and a bounding box, and returns a mask that is cropped to the bounding box
@@ -105,7 +200,7 @@ def crop_mask(masks, boxes):
     n, w, h = masks.shape
     x1, y1, x2, y2 = np.split(boxes[:, :, None], 4, 1)
     c = np.arange(h, dtype=np.float32)[None, None, :]
-    r = np.arange(w, dtype=np.float32)[None, :, None] 
+    r = np.arange(w, dtype=np.float32)[None, :, None]
 
     return masks * ((r >= x1) * (r < x2) * (c >= y1) * (c < y2))
 
@@ -124,18 +219,17 @@ def calculate_padding(original_shape, target_shape):
     orig_height, orig_width = original_shape[:2]
     target_height, target_width = target_shape
     larger_dim = max(orig_height, orig_width)
-    if not target_height==target_width:
+    if not target_height == target_width:
         print('model input must be square')
-    scale = target_height/larger_dim
+    scale = target_height / larger_dim
 
     scaled_width = int(orig_width * scale)
     scaled_height = int(orig_height * scale)
 
     pad_width = max((target_width - scaled_width) // 2, 0)
     pad_height = max((target_height - scaled_height) // 2, 0)
-    
-    return pad_width, pad_height, scale
 
+    return pad_width, pad_height, scale
 
 
 def crop_to_original(mask, pad_width, pad_height, original_shape, scale):
@@ -152,10 +246,11 @@ def crop_to_original(mask, pad_width, pad_height, original_shape, scale):
     Returns:
       numpy.ndarray: The cropped mask.
     """
-    end_height = min(pad_height + (original_shape[0]*scale), mask.shape[0])
-    end_width = min(pad_width + (original_shape[1]*scale), mask.shape[1])
+    end_height = min(pad_height + (original_shape[0] * scale), mask.shape[0])
+    end_width = min(pad_width + (original_shape[1] * scale), mask.shape[1])
     cropped_mask = mask[int(pad_height):int(end_height), int(pad_width):int(end_width)]
     return cropped_mask
+
 
 def process_masks(masks, boxes, orig_img_shape, model_input_size):
     """
@@ -179,21 +274,21 @@ def process_masks(masks, boxes, orig_img_shape, model_input_size):
     6. Crop masks per bounding boxes for individual objects.
     """
     if masks.size == 0:  # Check if the masks array is empty
-        return np.array([]) 
+        return np.array([])
     pad_width, pad_height, scale = calculate_padding(orig_img_shape, model_input_size)
     masks = 1 / (1 + np.exp(-masks))
     orig_height, orig_width = orig_img_shape[:2]
     masks = np.transpose(masks, (2, 1, 0))  # Change to HWC format
     masks = cv2.resize(masks, model_input_size, interpolation=cv2.INTER_LINEAR)
-      
+
     masks = np.expand_dims(masks, -1) if len(masks.shape) == 2 else masks
     masks = np.transpose(masks, (2, 1, 0))  # Change back to CHW format
-    #crop masks based on padding
+    # crop masks based on padding
     masks = [crop_to_original(mask, pad_width, pad_height, orig_img_shape, scale) for mask in masks]
     masks = np.stack(masks, axis=0)
-    
+
     masks = np.transpose(masks, (2, 1, 0))  # Change to HWC format
-    masks = cv2.resize(masks,  (orig_height, orig_width), interpolation=cv2.INTER_LINEAR)
+    masks = cv2.resize(masks, (orig_height, orig_width), interpolation=cv2.INTER_LINEAR)
     masks = np.expand_dims(masks, -1) if len(masks.shape) == 2 else masks
     masks = np.transpose(masks, (2, 1, 0))  # Change back to CHW format
     # Crop masks based on bounding boxes
@@ -226,15 +321,15 @@ def postprocess_yolov8_inst_seg(outputs: Tuple[np.ndarray, np.ndarray, np.ndarra
             - nms_classes: Class IDs of the bounding boxes.
             - final_masks: Combined segmentation masks after applying mask weights.
     """
-    
-    
+
     y_bb, y_cls, ymask_weights, y_masks = outputs
-    y_bb= np.transpose(y_bb, (0,2,1))
-    y_cls= np.transpose(y_cls, (0,2,1))
-    y_bb = y_bb * 640 #image size
+    y_bb = np.transpose(y_bb, (0, 2, 1))
+    y_cls = np.transpose(y_cls, (0, 2, 1))
+    y_bb = y_bb * 640  # image size
     detect_out = np.concatenate((y_bb, y_cls), 1)
     xd = detect_out.transpose([0, 2, 1])
-    nms_bbox, nms_scores, nms_classes, ymask_weights = combined_nms_seg(xd[..., :4], xd[..., 4:84], ymask_weights, iou_thres, conf, max_out_dets)[0]
+    nms_bbox, nms_scores, nms_classes, ymask_weights = \
+        combined_nms_seg(xd[..., :4], xd[..., 4:84], ymask_weights, iou_thres, conf, max_out_dets)[0]
     y_masks = y_masks.squeeze(0)
 
     if ymask_weights.size == 0:
@@ -246,3 +341,52 @@ def postprocess_yolov8_inst_seg(outputs: Tuple[np.ndarray, np.ndarray, np.ndarra
     return nms_bbox, nms_scores, nms_classes, final_masks
 
 
+def new_postprocess_yolov8_inst_seg(outputs,
+                                    conf: float = 0.1,
+                                    iou_thres: float = 0.3,
+                                    max_out_dets: int = 300):
+    y_bb, y_cls, ymask_weights, y_masks = outputs
+    y_bb = y_bb.permute(0, 2, 1)
+    y_cls = y_cls.permute(0, 2, 1)
+    y_bb = y_bb * 640  # image size
+    detect_out = torch.cat((y_bb, y_cls), dim=1)
+    # Transpose detect_out
+    xd = detect_out.permute(0, 2, 1)
+
+    # nms_bbox, nms_scores, nms_classes, ymask_weights = \
+    #     new_combined_nms_seg(xd[..., :4], xd[..., 4:84], ymask_weights, iou_thres, conf, max_out_dets)[0]
+    # nms_bbox (300, 4)
+    # nms_scores (300,)
+    # nms_classes (300,)
+    # ymask_weights (32, 300)
+    # nms_bbox, nms_scores, nms_classes, ymask_weights = \
+    #     new_multiclass_nms_seg(xd[..., :4], xd[..., 4:84], ymask_weights, iou_thres, conf, max_out_dets)[0]
+    valid_indexs = multiclass_nms_with_indices(boxes=xd[..., :4],
+                                               scores=xd[..., 4:84],
+                                               score_threshold=conf,
+                                               iou_threshold=iou_thres,
+                                               max_detections=max_out_dets)
+    out_valid = valid_indexs.n_valid
+    nms_bbox = valid_indexs.boxes[:, :out_valid, :]
+    nms_scores = valid_indexs.scores[:, :out_valid]
+    nms_classes = valid_indexs.labels[:, :out_valid]
+    ymask_weights = ymask_weights.transpose(1, 2)
+    ymask_weights = ymask_weights[valid_indexs.indices[0, :out_valid]]
+    # (32, 160, 160)
+
+    # nms_bbox = nms_bbox.squeeze(0)
+    # nms_classes = nms_classes.squeeze(0)
+    # y_masks = y_masks.squeeze(0)
+
+    # Check if ymask_weights is empty
+    if ymask_weights.numel() == 0:  # Use numel() to check if tensor is empty
+        return torch.tensor([]), torch.tensor([]), torch.tensor([]), torch.tensor([])
+
+    # (32, 300)
+    ymask_weights = ymask_weights.transpose(0, 1)
+
+    # Perform tensordot using torch.tensordot
+    # (300, 160, 160)
+    final_masks = torch.tensordot(ymask_weights, y_masks, dims=([0], [0]))
+
+    return nms_bbox.detach().cpu().numpy(), nms_scores.detach().cpu().numpy(), nms_classes.detach().cpu().numpy(), final_masks.detach().cpu().numpy()

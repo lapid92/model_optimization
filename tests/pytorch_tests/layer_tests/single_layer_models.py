@@ -52,9 +52,11 @@ class CatModel(torch.nn.Module):
 class DropoutModel(torch.nn.Module):
     def __init__(self):
         super(DropoutModel, self).__init__()
+        # self.drop = torch.nn.Dropout(p=0.5, inplace=False)
 
     def forward(self, x):
-        return torch.dropout(x, 0.5, False)
+        return torch.dropout(x, p=0.5, train=False)
+        # return self.drop(x)
 
 
 class UnsqueezeModel(torch.nn.Module):

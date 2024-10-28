@@ -4,6 +4,11 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 
+import torch
+
+from sony_custom_layers.pytorch import multiclass_nms_with_indices
+
+
 def nms(dets: np.ndarray, scores: np.ndarray, iou_thres: float = 0.5, max_out_dets: int = 300) -> List[int]:
     """
     Perform Non-Maximum Suppression (NMS) on detected bounding boxes.
@@ -42,8 +47,8 @@ def nms(dets: np.ndarray, scores: np.ndarray, iou_thres: float = 0.5, max_out_de
 
     return keep[:max_out_dets]
 
-def combined_nms(batch_boxes, batch_scores, iou_thres: float = 0.5, conf: float = 0.001, max_out_dets: int = 300):
 
+def combined_nms(batch_boxes, batch_scores, iou_thres: float = 0.5, conf: float = 0.001, max_out_dets: int = 300):
     """
     Performs combined Non-Maximum Suppression (NMS) on batches of bounding boxes and scores.
 
@@ -62,7 +67,6 @@ def combined_nms(batch_boxes, batch_scores, iou_thres: float = 0.5, conf: float 
     """
     nms_results = []
     for boxes, scores in zip(batch_boxes, batch_scores):
-
         xc = np.argmax(scores, 1)
         xs = np.amax(scores, 1)
         x = np.concatenate([boxes, np.expand_dims(xs, 1), np.expand_dims(xc, 1)], 1)
@@ -128,6 +132,42 @@ def convert_to_ymin_xmin_ymax_xmax_format(boxes, orig_format: BoxFormat):
     else:
         raise Exception("Unsupported boxes format")
 
+
+def new_convert_to_ymin_xmin_ymax_xmax_format(boxes, orig_format: BoxFormat):
+    if len(boxes) == 0:
+        return boxes
+
+    elif orig_format == BoxFormat.YMIM_XMIN_YMAX_XMAX:
+        return boxes
+
+    elif orig_format == BoxFormat.XMIN_YMIN_W_H:
+        boxes[:, 2] += boxes[:, 0]  # Convert width to xmax
+        boxes[:, 3] += boxes[:, 1]  # Convert height to ymax
+        # Swap xmin and ymin columns
+        boxes[:, [0, 1]] = boxes[:, [1, 0]]
+        # Swap xmax and ymax columns
+        boxes[:, [2, 3]] = boxes[:, [3, 2]]
+        return boxes
+
+    elif orig_format == BoxFormat.XMIM_YMIN_XMAX_YMAX:
+        # Swap xmin and ymin columns
+        boxes[:, [0, 1]] = boxes[:, [1, 0]]
+        # Swap xmax and ymax columns
+        boxes[:, [2, 3]] = boxes[:, [3, 2]]
+        return boxes
+
+    elif orig_format == BoxFormat.XC_YC_W_H:
+        new_boxes = boxes.clone()
+        new_boxes[:, 0] = boxes[:, 1] - boxes[:, 3] / 2  # top-left y
+        new_boxes[:, 1] = boxes[:, 0] - boxes[:, 2] / 2  # top-left x
+        new_boxes[:, 2] = boxes[:, 1] + boxes[:, 3] / 2  # bottom-right y
+        new_boxes[:, 3] = boxes[:, 0] + boxes[:, 2] / 2  # bottom-right x
+        return new_boxes
+
+    else:
+        raise Exception("Unsupported boxes format")
+
+
 def clip_boxes(boxes: np.ndarray, h: int, w: int) -> np.ndarray:
     """
     Clip bounding boxes to stay within the image boundaries.
@@ -147,7 +187,8 @@ def clip_boxes(boxes: np.ndarray, h: int, w: int) -> np.ndarray:
     return boxes
 
 
-def scale_boxes(boxes: np.ndarray, h_image: int, w_image: int, h_model: int, w_model: int, preserve_aspect_ratio: bool, normalized: bool = True) -> np.ndarray:
+def scale_boxes(boxes: np.ndarray, h_image: int, w_image: int, h_model: int, w_model: int, preserve_aspect_ratio: bool,
+                normalized: bool = True) -> np.ndarray:
     """
     Scale and offset bounding boxes based on model output size and original image size.
 
@@ -186,7 +227,8 @@ def scale_boxes(boxes: np.ndarray, h_image: int, w_image: int, h_model: int, w_m
     return boxes
 
 
-def scale_coords(kpts: np.ndarray, h_image: int, w_image: int, h_model: int, w_model: int, preserve_aspect_ratio: bool) -> np.ndarray:
+def scale_coords(kpts: np.ndarray, h_image: int, w_image: int, h_model: int, w_model: int,
+                 preserve_aspect_ratio: bool) -> np.ndarray:
     """
     Scale and offset keypoints based on model output size and original image size.
 
@@ -212,13 +254,14 @@ def scale_coords(kpts: np.ndarray, h_image: int, w_image: int, h_model: int, w_m
         deltaH, deltaW = int((H - H_tag) / 2), int((W - W_tag) / 2)
 
     # Scale and offset boxes
-    kpts[..., 0] = (kpts[..., 0]  - deltaH) * scale_H
+    kpts[..., 0] = (kpts[..., 0] - deltaH) * scale_H
     kpts[..., 1] = (kpts[..., 1] - deltaW) * scale_W
 
     # Clip boxes
     kpts = clip_coords(kpts, h_image, w_image)
 
     return kpts
+
 
 def clip_coords(kpts: np.ndarray, h: int, w: int) -> np.ndarray:
     """
@@ -238,9 +281,9 @@ def clip_coords(kpts: np.ndarray, h: int, w: int) -> np.ndarray:
 
 
 def postprocess_yolov8_keypoints(outputs: Tuple[np.ndarray, np.ndarray, np.ndarray],
-                       conf: float = 0.001,
-                       iou_thres: float = 0.7,
-                       max_out_dets: int = 300) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                                 conf: float = 0.001,
+                                 iou_thres: float = 0.7,
+                                 max_out_dets: int = 300) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Postprocess the outputs of a YOLOv8 model for pose estimation.
 
@@ -291,11 +334,70 @@ def postprocess_yolov8_keypoints(outputs: Tuple[np.ndarray, np.ndarray, np.ndarr
     return nms_bbox, nms_scores, nms_kpts
 
 
-def postprocess_yolov8_inst_seg(outputs: Tuple[np.ndarray, np.ndarray, np.ndarray],
-                       conf: float = 0.001,
-                       iou_thres: float = 0.7,
-                       max_out_dets: int = 300) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def new_postprocess_yolov8_keypoints(outputs,
+                                     conf: float = 0.001,
+                                     iou_thres: float = 0.7,
+                                     max_out_dets: int = 300):
+    kpt_shape = (17, 3)
+    feat_sizes = torch.tensor([80, 40, 20])
+    stride_sizes = torch.tensor([8, 16, 32])
+    a, s = (x.transpose(0, 1) for x in new_make_anchors_yolo_v8(feat_sizes, stride_sizes, 0.5))
+    a = a.cuda()
+    s = s.cuda()
+    # y_bb (4, 4, 8400)
+    # y_cls (4, 1, 8400)
+    # kpts (4, 51, 8400)
+    y_bb, y_cls, kpts = outputs
+    # dbox (4, 4, 8400)
+    dbox = new_dist2bbox_yolo_v8(y_bb, torch.unsqueeze(a, 0), xywh=True, dim=1) * s
 
+    detect_out = torch.cat((dbox, y_cls), 1)
+    # additional part for pose estimation
+    ndim = kpt_shape[1]
+    pred_kpt = kpts.clone()
+    if ndim == 3:
+        pred_kpt[:, 2::3] = 1 / (
+                    1 + torch.exp(-pred_kpt[:, 2::3]))  # sigmoid (WARNING: inplace .sigmoid_() Apple MPS bug)
+    pred_kpt[:, 0::ndim] = (pred_kpt[:, 0::ndim] * 2.0 + (a[0] - 0.5)) * s
+    pred_kpt[:, 1::ndim] = (pred_kpt[:, 1::ndim] * 2.0 + (a[1] - 0.5)) * s
+
+    x_batch = torch.cat([detect_out, pred_kpt.transpose(1, 2)], dim=2)
+    nms_bbox, nms_scores, nms_kpts = [], [], []
+    for x in x_batch:
+        # x = x[(x[:, 4] > conf)]
+        x = x[torch.argsort(x[:, 4], descending=True)[:8400]]
+        x[..., :4] = new_convert_to_ymin_xmin_ymax_xmax_format(x[..., :4], BoxFormat.XC_YC_W_H)
+        boxes = x[..., :4][None, :]
+        scores = x[..., 4][None, :, None]
+
+        # Original post-processing part
+        valid_indexs = multiclass_nms_with_indices(boxes=boxes,
+                                                   scores=scores,
+                                                   score_threshold=0.001,
+                                                   iou_threshold=iou_thres,
+                                                   max_detections=max_out_dets)
+        out_valid = valid_indexs.n_valid
+        out_box = valid_indexs.boxes[:, :out_valid, :].detach().cpu().numpy()
+        out_scores = valid_indexs.scores[0, :out_valid].detach().cpu().numpy()
+        out_kpts = x[valid_indexs.indices[0, :out_valid], 5:].detach().cpu().numpy()
+        nms_bbox.append(out_box)
+        nms_scores.append(out_scores)
+        nms_kpts.append(out_kpts)
+
+    return nms_bbox, nms_scores, nms_kpts
+
+
+def reduced_postprocess_yolov8_keypoints(outputs,
+                                         conf: float = 0.001,
+                                         iou_thres: float = 0.7,
+                                         max_out_dets: int = 300):
+    return outputs
+
+
+def postprocess_yolov8_inst_seg(outputs: Tuple[np.ndarray, np.ndarray, np.ndarray],
+                                conf: float = 0.001,
+                                iou_thres: float = 0.7,
+                                max_out_dets: int = 300) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     feat_sizes = np.array([80, 40, 20])
     stride_sizes = np.array([8, 16, 32])
     a, s = (x.transpose() for x in make_anchors_yolo_v8(feat_sizes, stride_sizes, 0.5))
@@ -323,9 +425,24 @@ def make_anchors_yolo_v8(feats, strides, grid_cell_offset=0.5):
     return np.concatenate(anchor_points), np.concatenate(stride_tensor)
 
 
+def new_make_anchors_yolo_v8(feats, strides, grid_cell_offset=0.5):
+    """Generate anchors from features."""
+    anchor_points, stride_tensor = [], []
+    assert feats is not None
+    for i, stride in enumerate(strides):
+        h, w = feats[i], feats[i]
+        sx = torch.arange(w, dtype=torch.float32) + grid_cell_offset  # shift x
+        sy = torch.arange(h, dtype=torch.float32) + grid_cell_offset  # shift y
+        sy, sx = torch.meshgrid(sy, sx, indexing='ij')
+        anchor_points.append(torch.stack((sx, sy), dim=-1).reshape(-1, 2))
+        stride_tensor.append(torch.full((h * w, 1), stride, dtype=torch.float32))
+
+    return torch.cat(anchor_points), torch.cat(stride_tensor)
+
+
 def dist2bbox_yolo_v8(distance, anchor_points, xywh=True, dim=-1):
     """Transform distance(ltrb) to box(xywh or xyxy)."""
-    lt, rb = np.split(distance,2,axis=dim)
+    lt, rb = np.split(distance, 2, axis=dim)
     x1y1 = anchor_points - lt
     x2y2 = anchor_points + rb
     if xywh:
@@ -335,7 +452,20 @@ def dist2bbox_yolo_v8(distance, anchor_points, xywh=True, dim=-1):
     return np.concatenate((x1y1, x2y2), dim)  # xyxy bbox
 
 
-def scale_coords(kpts: np.ndarray, h_image: int, w_image: int, h_model: int, w_model: int, preserve_aspect_ratio: bool) -> np.ndarray:
+def new_dist2bbox_yolo_v8(distance, anchor_points, xywh=True, dim=-1):
+    """Transform distance(ltrb) to box(xywh or xyxy)."""
+    lt, rb = torch.split(distance, 2, dim=dim)
+    x1y1 = anchor_points - lt
+    x2y2 = anchor_points + rb
+    if xywh:
+        c_xy = (x1y1 + x2y2) / 2
+        wh = x2y2 - x1y1
+        return torch.cat((c_xy, wh), dim)  # xywh bbox
+    return torch.cat((x1y1, x2y2), dim)  # xyxy bbox
+
+
+def scale_coords(kpts: np.ndarray, h_image: int, w_image: int, h_model: int, w_model: int,
+                 preserve_aspect_ratio: bool) -> np.ndarray:
     """
     Scale and offset keypoints based on model output size and original image size.
 
@@ -361,7 +491,7 @@ def scale_coords(kpts: np.ndarray, h_image: int, w_image: int, h_model: int, w_m
         deltaH, deltaW = int((H - H_tag) / 2), int((W - W_tag) / 2)
 
     # Scale and offset boxes
-    kpts[..., 0] = (kpts[..., 0]  - deltaH) * scale_H
+    kpts[..., 0] = (kpts[..., 0] - deltaH) * scale_H
     kpts[..., 1] = (kpts[..., 1] - deltaW) * scale_W
 
     # Clip boxes
