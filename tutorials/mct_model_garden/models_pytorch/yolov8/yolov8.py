@@ -384,12 +384,12 @@ class Pose(Detect):
         c4 = max(ch[0] // 4, self.nk)
         self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.nk, 1)) for x in ch)
 
-        # anchors, strides = (x.transpose(0, 1) for x in make_anchors(self.feat_sizes,
-        #                                                             self.stride, 0.5))
+        anchors, strides = (x.transpose(0, 1) for x in make_anchors(self.feat_sizes,
+                                                                    self.stride, 0.5))
         # anchors = anchors
         #
-        # self.register_buffer('kanchors', anchors)
-        # self.register_buffer('key_strides', strides)
+        self.register_buffer('kanchors', anchors)
+        self.register_buffer('key_strides', strides)
         # anchors, strides = (x.transpose(0, 1) for x in make_anchors(self.feat_sizes,
         #                                                             self.stride, 0.5))
         # anchors = anchors * strides
@@ -410,29 +410,32 @@ class Pose(Detect):
 
         # Update the x coordinates (pred_kpt[:, 0::3])
         # updated_x = (kpt[:, 0::3] * 2.0 + (self.kanchors[0] - 0.5)) * self.kstrides
-        # updated_x = kpt[:, 0::3] * 2.0 * self.key_strides + self.kanchors[0] * self.key_strides - 0.5 * self.key_strides
+        updated_x = kpt[:, 0::3] * 2.0 * self.key_strides + self.kanchors[0] * self.key_strides - 0.5 * self.key_strides
         # updated_x = kpt[:, 0::3] * 2.0 * self.strides * self.img_size + (
         #         self.anchors[0] - 0.5 * self.strides) * self.img_size
 
         # updated_x = kpt[:, 0::3] * 2.0 * self.strides + (
         #             self.anchors[0] - 0.5 * self.strides)
 
-        s640 = self.strides / 640
-        a0_640 = self.anchors[0] / 640
-        updated_x = kpt[:, 0::3] * 2.0 * s640 + (
-                    a0_640 - 0.5 * s640)
+        # s640 = self.strides / 640
+        # a0_640 = self.anchors[0] / 640
+        # s640 = self.strides
+        # a0_640 = self.anchors[0]
+        # updated_x = kpt[:, 0::3] * 2.0 * s640 + (
+        #             a0_640 - 0.5 * s640)
 
         # Update the y coordinates (pred_kpt[:, 1::3])
         # updated_y = (kpt[:, 1::3] * 2.0 + (self.kanchors[1] - 0.5)) * self.kstrides
-        # updated_y = kpt[:, 1::3] * 2.0 * self.key_strides + self.kanchors[1] * self.key_strides - 0.5 * self.key_strides
+        updated_y = kpt[:, 1::3] * 2.0 * self.key_strides + self.kanchors[1] * self.key_strides - 0.5 * self.key_strides
         # updated_y = kpt[:, 1::3] * 2.0 * self.strides * self.img_size + (
         #         self.anchors[1] - 0.5 * self.strides) * self.img_size
         # updated_y = kpt[:, 1::3] * 2.0 * self.strides + (
         #             self.anchors[1] - 0.5 * self.strides)
 
-        a1_640 = self.anchors[1] / 640
-        updated_y = kpt[:, 1::3] * 2.0 * s640 + (
-                    a1_640 - 0.5 * s640)
+        # a1_640 = self.anchors[1] / 640
+        # a1_640 = self.anchors[1]
+        # updated_y = kpt[:, 1::3] * 2.0 * s640 + (
+        #             a1_640 - 0.5 * s640)
 
         # Reconstruct pred_kpt by concatenating the updated x, y, and sigmoid-transformed parts
         kpt = torch.stack([updated_x, updated_y, sigmoid_transformed], dim=-1).permute(0, 1, 3, 2).reshape(
@@ -599,7 +602,8 @@ class KeyPointsPostProcessWrapper(nn.Module):
 
         boxes = outputs[0]
         scores = outputs[1]
-        kpts = outputs[2] * 640
+        # kpts = outputs[2] * 640
+        kpts = outputs[2]
         nms = multiclass_nms_with_indices(boxes=boxes, scores=scores, score_threshold=self.score_threshold,
                                           iou_threshold=self.iou_threshold, max_detections=self.max_detections)
         idx = nms.indices
