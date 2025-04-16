@@ -18,8 +18,8 @@ import model_compression_toolkit.target_platform_capabilities.schema.v1 as schem
 import model_compression_toolkit.target_platform_capabilities.schema.v2 as schema_v2
 import model_compression_toolkit.target_platform_capabilities.schema.mct_current_schema as current_schema
 
-ALL_SCHEMA_VERSIONS = [schema_v1]  # needs to be updated with all active schema versions
-FUTURE_SCHEMA_VERSIONS = [schema_v2]  # once future schema becomes current schema, move to it ALL_SCHEMA_VERSIONS
+ALL_SCHEMA_VERSIONS = [schema_v1, schema_v2]  # needs to be updated with all active schema versions
+FUTURE_SCHEMA_VERSIONS = []  # once future schema becomes current schema, move to it ALL_SCHEMA_VERSIONS
 all_tpc_types = tuple([s.TargetPlatformCapabilities for s in ALL_SCHEMA_VERSIONS])
 tpc_or_str_type = all_tpc_types + (str,)
 
@@ -38,7 +38,6 @@ def _schema_v1_to_v2(tpc: schema_v1.TargetPlatformCapabilities) -> schema_v2.Tar
     Converts given tpc of schema version 1 to schema version 2
     :return: TargetPlatformCapabilities instance of of schema version 2
     """
-    raise NotImplementedError("Once schema v2 is implemented, add necessary adaptations to _schema_v1_to_v2 function and remove 'pragma: no cover'")
     return schema_v2.TargetPlatformCapabilities(default_qco=tpc.default_qco,
                                              operator_set=tpc.operator_set,
                                              fusing_patterns=tpc.fusing_patterns,

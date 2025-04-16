@@ -115,11 +115,11 @@ class TargetPlatformCapabilities(BaseModel):
         SCHEMA_VERSION (int): Version of the schema for the Target Platform Model.
     """
     default_qco: QuantizationConfigOptions
-    operator_set: Optional[Tuple[OperatorsSet, ...]]
-    fusing_patterns: Optional[Tuple[Fusing, ...]]
-    tpc_minor_version: Optional[int]
-    tpc_patch_version: Optional[int]
-    tpc_platform_type: Optional[str]
+    operator_set: Optional[Tuple[OperatorsSet, ...]] = None
+    fusing_patterns: Optional[Tuple[Fusing, ...]] = None
+    tpc_minor_version: Optional[int] = None
+    tpc_patch_version: Optional[int] = None
+    tpc_platform_type: Optional[str] = None
     add_metadata: bool = True
     name: Optional[str] = "default_tpc"
     is_simd_padding: bool = False

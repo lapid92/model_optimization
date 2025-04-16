@@ -18,7 +18,7 @@ import operator
 import torch
 from torch import add, sub, mul, div, divide, flatten, reshape, split, unsqueeze, dropout, sigmoid, tanh, \
     chunk, unbind, topk, gather, equal, transpose, permute, argmax, squeeze, multiply, subtract, minimum, \
-    maximum, softmax, fake_quantize_per_channel_affine
+    maximum, softmax, fake_quantize_per_channel_affine, exp
 from torch.nn import Conv2d, Linear, ConvTranspose2d, MaxPool2d, BatchNorm2d, Dropout, Flatten, Hardtanh, ReLU, ReLU6, \
     PReLU, SiLU, Sigmoid, Tanh, Hardswish, Hardsigmoid, LeakyReLU, GELU, LogSoftmax, Softmax, ELU, AvgPool2d, ZeroPad2d
 from torch.nn.functional import relu, relu6, prelu, silu, hardtanh, hardswish, hardsigmoid, leaky_relu, gelu, fold
@@ -99,6 +99,7 @@ class AttachTpcToPytorch(AttachTpcToFramework):
                                                         Eq('p', 2) | Eq('p', None))],
             OperatorSetNames.SSD_POST_PROCESS: [],  # no such operator in pytorch
             OperatorSetNames.COMBINED_NON_MAX_SUPPRESSION: [MulticlassNMS, MulticlassNMSWithIndices],
+            OperatorSetNames.EXP: [exp]
         }
 
         pytorch_linear_attr_mapping = {KERNEL_ATTR: DefaultDict(default_value=PYTORCH_KERNEL),
