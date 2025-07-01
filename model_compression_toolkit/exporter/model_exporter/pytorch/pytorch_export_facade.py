@@ -69,11 +69,17 @@ if FOUND_TORCH:
             quantization_format: Format of how quantizers are exported (fakely-quant, int8, MCTQ quantizers).
             onnx_opset_version: ONNX opset version to use for exported ONNX model.
             output_names (Optional[List[str]]): Optional list of output node names for export compatibility.
-            This argument is relevant only when using FakelyQuantONNXPyTorchExporter.
+            This argument is relevant only when using PytorchExportSerializationFormat.ONNX.
 
         """
         # Ensure 'metadata' is available directly on the model, if present in submodules
         find_and_assign_metadata_attr(model)
+
+        if output_names is not None and serialization_format != PytorchExportSerializationFormat.ONNX:
+            Logger.warning(
+                f'`output_names` is only applicable when exporting to ONNX. '
+                f'Current serialization format is {serialization_format}, so `output_names` will be ignored.'
+            )  # pragma: no cover
 
         if serialization_format == PytorchExportSerializationFormat.TORCHSCRIPT:
             if quantization_format in supported_serialization_quantization_export_dict[serialization_format]:

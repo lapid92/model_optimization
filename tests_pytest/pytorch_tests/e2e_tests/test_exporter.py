@@ -318,13 +318,20 @@ class TestExporter:
         self._assert_quant_params_match(quantized_model, onnx_model_dict, a_qmethod, w_qmethod)
         self._assert_outputs_match(quantized_model, self.representative_dataset(1), QuantizationFormat.MCTQ, tol=tol)
 
-    @pytest.mark.parametrize('w_qmethod', [mctq.QuantizationMethod.POWER_OF_TWO])
-    @pytest.mark.parametrize('a_qmethod', [mctq.QuantizationMethod.SYMMETRIC])
     @pytest.mark.parametrize('abits', [8, 16])
     @pytest.mark.parametrize('output_names', [None, ['x']])
-    def test_mct_ptq_exporter_mctq_output_names(self, w_qmethod, abits, a_qmethod, output_names):
-        # set_seed(13)
-        quantized_model = self._run_mct(self.get_model(), self.representative_dataset(1), abits, a_qmethod, w_qmethod)
+    def test_mct_ptq_exporter_mctq_output_names(self, abits, output_names):
+        """
+        Test that a quantized model exported using MCTQ format includes the correct output names in the ONNX file.
+
+        Args:
+            abits (int): Number of bits to use for activation quantization.
+            output_names (Optional[List[str]]): List of expected output node names to validate in the exported ONNX model.
+                If None, the exporter should assign default output names automatically.
+        """
+        quantized_model = self._run_mct(self.get_model(), self.representative_dataset(1), abits,
+                                        a_qmethod=mctq.QuantizationMethod.SYMMETRIC,
+                                        w_qmethod=mctq.QuantizationMethod.POWER_OF_TWO)
         onnx_model_dict = self._run_exporter(quantized_model, self.representative_dataset(1), QuantizationFormat.MCTQ,
                                              output_names=output_names)
         self._assert_outputs_names(output_names=output_names)
@@ -336,6 +343,22 @@ class TestExporter:
 
         self._assert_fq_quant_params_match(quantized_model, onnx_model_dict, mctq.QuantizationMethod.POWER_OF_TWO)
         self._assert_outputs_match(quantized_model, self.representative_dataset(1), QuantizationFormat.FAKELY_QUANT, tol=tol)
+
+    @pytest.mark.parametrize('abits', [8, 16])
+    @pytest.mark.parametrize('output_names', [None, ['x']])
+    def test_mct_ptq_and_exporter_fq_output_names(self, abits, output_names):
+        """
+        Test that a quantized model exported using FAKELY_QUANT format includes the correct output names in the ONNX file.
+
+        Args:
+            abits (int): Number of bits to use for activation quantization.
+            output_names (Optional[List[str]]): List of expected output node names to validate in the exported ONNX model.
+                If None, the exporter should assign default output names automatically.
+        """
+        quantized_model = self._run_mct(self.get_model(), self.representative_dataset(1), abits, mctq.QuantizationMethod.POWER_OF_TWO)
+        onnx_model_dict = self._run_exporter(quantized_model, self.representative_dataset(1),
+                                             QuantizationFormat.FAKELY_QUANT, output_names=output_names)
+        self._assert_outputs_names(output_names=output_names)
 
     @pytest.mark.parametrize('a_qmethod, tol', [(mctq.QuantizationMethod.POWER_OF_TWO, 0.0),
                                                 (mctq.QuantizationMethod.SYMMETRIC, 1e-2),
@@ -391,6 +414,15 @@ class TestExporter:
     @pytest.mark.parametrize('abits', [8, 16])
     @pytest.mark.parametrize('output_names', [None, ['x', 'y']])
     def test_multi_output_names_mct_and_exporter_mctq(self, abits, output_names):
+        """
+        Test that a quantized multi-output model exported using MCTQ format includes the correct output names in
+        the ONNX file.
+
+        Args:
+            abits (int): Number of bits to use for activation quantization.
+            output_names (Optional[List[str]]): List of expected output node names to validate in the exported ONNX model.
+                If None, the exporter should assign default output names automatically.
+        """
         class MultiOutputModel(torch.nn.Module):
             def __init__(self, in_channels, out_channels):
                 super().__init__()
@@ -404,6 +436,34 @@ class TestExporter:
                                         self.representative_dataset(1),
                                         abits, mctq.QuantizationMethod.POWER_OF_TWO)
         self._run_exporter(quantized_model, self.representative_dataset(1), QuantizationFormat.MCTQ,
+                           output_names=output_names)
+        self._assert_outputs_names(output_names=output_names)
+
+    @pytest.mark.parametrize('abits', [8, 16])
+    @pytest.mark.parametrize('output_names', [None, ['x', 'y']])
+    def test_multi_output_names_mct_and_exporter_fq(self, abits, output_names):
+        """
+        Test that a quantized multi-output model exported using FAKELY_QUANT format includes the correct output names in
+        the ONNX file.
+
+        Args:
+            abits (int): Number of bits to use for activation quantization.
+            output_names (Optional[List[str]]): List of expected output node names to validate in the exported ONNX model.
+                If None, the exporter should assign default output names automatically.
+        """
+        class MultiOutputModel(torch.nn.Module):
+            def __init__(self, in_channels, out_channels):
+                super().__init__()
+                self.linear = torch.nn.Linear(in_channels, out_channels)
+                self.linear_y = torch.nn.Linear(in_channels, out_channels)
+
+            def forward(self, x):
+                return self.linear(x), self.linear_y(x)
+
+        quantized_model = self._run_mct(MultiOutputModel(self.in_channels, self.out_channels),
+                                        self.representative_dataset(1),
+                                        abits, mctq.QuantizationMethod.POWER_OF_TWO)
+        self._run_exporter(quantized_model, self.representative_dataset(1), QuantizationFormat.FAKELY_QUANT,
                            output_names=output_names)
         self._assert_outputs_names(output_names=output_names)
 
