@@ -27,7 +27,7 @@ SchedulerInfo = namedtuple('SchedulerInfo', [OPERATORS_SCHEDULING, MAX_CUT, CUTS
 
 def compute_graph_max_cut(memory_graph: MemoryGraph,
                           n_iter: int = 50,
-                          astar_n_iter: int = 1000,
+                          astar_n_iter: int = 5000,
                           eps: float = 1e-2) -> Tuple[List[BaseNode], float, List[Cut]]:
     """
     A wrapper function to compute max cut and schedule for a given model.

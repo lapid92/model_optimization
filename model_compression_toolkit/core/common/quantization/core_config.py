@@ -38,6 +38,7 @@ class CoreConfig:
     mixed_precision_config: MixedPrecisionQuantizationConfig = field(default_factory=MixedPrecisionQuantizationConfig)
     bit_width_config: BitWidthConfig = field(default_factory=BitWidthConfig)
     debug_config: DebugConfig = field(default_factory=DebugConfig)
+    enable_rotation = False
 
     @property
     def is_mixed_precision_enabled(self) -> bool:

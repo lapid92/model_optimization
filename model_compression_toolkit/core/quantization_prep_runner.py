@@ -32,6 +32,7 @@ from model_compression_toolkit.core.common.statistics_correction.statistics_corr
 from model_compression_toolkit.core.common.substitutions.apply_substitutions import substitute
 
 from model_compression_toolkit.core.common.visualization.tensorboard_writer import TensorboardWriter
+from model_compression_toolkit.core.pytorch.statistics_correction.graph_rotation import rotate_graph
 
 
 def quantization_preparation_runner(graph: Graph,
@@ -62,6 +63,12 @@ def quantization_preparation_runner(graph: Graph,
     Returns:
         Graph object that represents the model, contains thresholds, and ready for quantization.
     """
+
+    ######################################
+    # Rotate Weights
+    ######################################
+    if core_config.enable_rotation:
+        rotate_graph(graph)
 
     ######################################
     # Statistic collection
