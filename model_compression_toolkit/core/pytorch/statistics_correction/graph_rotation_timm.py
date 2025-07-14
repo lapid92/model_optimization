@@ -33,12 +33,7 @@ NUM_BRANCHES = 2
 def is_shortcut_node(node):
     # TODO:
     # add cat with terms
-    if node.type in [torch.add, operator.add]:
-        return True
-    elif node.type in [torch.cat]:
-        if node.input_shape[-1][-1] == node.output_shape[-1][-1]:
-            return True
-    return False
+    return isinstance(node, FunctionalNode) and node.type in [torch.add, operator.add, torch.cat]
 
 
 def is_norm(n):
@@ -48,7 +43,7 @@ def is_norm(n):
 # TODO:
 # add conv
 def is_linear(n):
-    return n.type in [torch.nn.Linear, torch.nn.Conv2d]
+    return n.type in [torch.nn.Linear]
 
 
 def is_dropout(n):
@@ -57,58 +52,20 @@ def is_dropout(n):
 
 # TODO:
 # check for shape chn is same, check fro not changing last axis if available
-# Add check by edge
-def is_reshape(n, check_shape=True):
+def is_reshape(n):
     if n.type in [torch.reshape, torch.Tensor.view, torch.permute, torch.Tensor.contiguous, torch.roll,
-                  operator.getitem, torch.transpose, torch.flatten, torch.Tensor.expand]:
-        if check_shape:
-            if len(n.input_shape) == 1 and len(n.output_shape) == 1:
-                if n.input_shape[-1][-1] == n.output_shape[-1][-1]:
-                    return True
-                else:
-                    return False
+                  operator.getitem]:
+        if len(n.input_shape) == 1 and len(n.output_shape) == 1:
+            if n.input_shape[-1][-1] == n.output_shape[-1][-1]:
+                return True
             else:
-                return False
+                return 0
         else:
-            return True
+            return 0
 
 
-def is_const_node(n):
-    return n.type in [torch.Tensor.expand]
-
-def is_transparent(n, check_shape=True):
-    return is_dropout(n) or is_reshape(n, check_shape=check_shape)
-
-
-def validate_layernorm_folding(graph, input_nodes, norm_nodes, last_chain_node):
-    linear_to_fold = len(input_nodes) == len(norm_nodes)
-
-    eoc_node = graph.get_next_nodes(last_chain_node)
-
-    if len(eoc_node) == 1:
-        if eoc_node[0].type in [nn.LayerNorm] and linear_to_fold:
-            return True
-
-    return False
-
-    result = set()
-    visited = set()
-    frontier = [node]
-
-    while frontier:
-        current = frontier.pop()
-        if current in visited:
-            continue
-        visited.add(current)
-
-        for next_node in graph.get_next_nodes(current):
-            if is_transparent(next_node):
-                frontier.append(next_node)
-            else:
-                result.add(next_node)
-
-    return list(result)
-
+def is_transparent(n):
+    return is_dropout(n) or is_reshape(n)
 
 
 def get_next_non_transparent_nodes(graph, node):
@@ -185,73 +142,6 @@ def user_count(graph, n):
     else:
         return 0
 
-# TODO:
-# chack on swin (with multiple chains)
-# def find_rotationable_inputs(graph, start_node, visited=None):
-#     if visited is None:
-#         visited = set()
-#
-#     rotationable_inputs = set()
-#
-#     def dfs(node):
-#         print(node)
-#         if node in visited:
-#             return
-#         visited.add(node)
-#
-#         # Base cases
-#         if is_linear(node):
-#             rotationable_inputs.add(node)
-#             return
-#         elif len(node.weights):
-#             # constant tensor
-#             rotationable_inputs.add(node)
-#
-#         # Allowed path: foldable ops
-#         if is_transparent(node, check_shape=False) or is_shortcut_node(node):
-#             for arg in graph.get_prev_nodes(node):
-#                 arg_dfs = dfs(arg)
-#                 if not arg_dfs:
-#                     return False
-#         else:
-#             rotationable_inputs = set()
-#             return False
-#
-#     dfs(start_node)
-#     return rotationable_inputs
-
-def find_rotationable_inputs(graph, start_node, visited=None):
-    if visited is None:
-        visited = set()
-
-    rotationable_inputs = set()
-
-    def dfs(node):
-        if node in visited:
-            return True  # already processed successfully
-        visited.add(node)
-
-        # Base cases
-        if is_linear(node):
-            rotationable_inputs.add(node)
-            return True
-        elif node.has_positional_weights:  # constant
-            rotationable_inputs.add(node)
-            if is_const_node(node):
-                return True
-            # return True
-
-        # Allowed path: foldable ops
-        if is_transparent(node, check_shape=False) or is_shortcut_node(node):
-            for arg in graph.get_prev_nodes(node):
-                if not dfs(arg):
-                    return False
-            return True
-        else:
-            return False
-
-    ok = dfs(start_node)
-    return rotationable_inputs if ok else set()
 
 def get_rotationable_chains(graph):
     chains = []
@@ -408,46 +298,14 @@ def rotate_output_linear(node, R):
     node.set_weights_by_keys('weight', np.matmul(R, W))
     if 'bias' in node.weights.keys() and node.weights['bias'] is not None:
         node.set_weights_by_keys('bias', np.matmul(R, node.weights['bias']))
-    return node
-
-def rotate_output_conv(node, R):
-    # conv.weight: [out_channels, in_channels, kH, kW]
-    # Apply R to the output channel dimension (dim=0)
-    new_weight = np.einsum('oi,ihwk->ohwk', R, node.weights['weight'])
-
-    node.set_weights_by_keys('weight', new_weight)
-
-    # Also fold into bias if it exists
-    if 'bias' in node.weights.keys() and node.weights['bias'] is not None:
-        node.set_weights_by_keys('bias', R @ node.weights['bias'])
 
     return node
-
-def rotate_output_layer(node, R):
-    if node.type == nn.Linear:
-        return rotate_output_linear(node, R)
-    elif node.type == nn.Conv2d:
-        return rotate_output_conv(node, R)
-
-def rotate_output_const(const_tensor, R):
-    return const_tensor @ R.T
 
 
 def rotate_input_linear(node, R):
     W = node.weights['weight']
     node.set_weights_by_keys('weight', np.matmul(W, R))
     return node
-
-def rotate_input_conv(node, R):
-    W = node.weights['weight']
-    node.set_weights_by_keys('weight', np.matmul(W, R))
-    return node
-
-def rotate_input_layer(node, R):
-    if node.type == nn.Linear:
-        return rotate_input_linear(node, R)
-    elif node.type == nn.Conv2d:
-        return rotate_input_conv(node, R)
 
 
 def insert_node_between_two_nodes(graph: Graph,
@@ -496,39 +354,26 @@ def insert_node_before_node(graph: Graph,
     insert_node_between_two_nodes(graph, node_to_insert, first_node, last_node)
 
 
-def insert_rotation_embed_after_first_shortcut_node(graph, linear_node, ln_node, chain_start_node, R, fold_ln):
-    if fold_ln:
-        d_out = ln_node.weights['weight'].shape[-1]
-        C = np.eye(d_out) - np.ones((d_out, d_out)) / d_out
-        R = np.matmul(R, C, dtype=np.float32)
+def insert_rotation_embed_after_first_shortcut_node(graph, linear_node, ln_node, chain_start_node, R):
+    # TODO:
+    # Fold!
+    # get C and norm term from arg
+    d_out = ln_node.weights['weight'].shape[-1]
+    C = np.eye(d_out) - np.ones((d_out, d_out)) / d_out
 
-    # Find source nodes
-    source_nodes = find_rotationable_inputs(graph=graph, start_node=chain_start_node)
-    if len(source_nodes):
-        for sn in source_nodes:
-            if is_linear(sn):
-                rotate_output_layer(sn, R)
-            else:
-                for k, w in sn.weights.items():
-                    sn.set_weights_by_keys(k, rotate_output_const(w, R))
-    else:
-        # add x @ R af chain_start_node
-        matmul_name = f'{chain_start_node.name}_R'
-        matmul_node = BaseNode(name=matmul_name,
-                               framework_attr={'in_features': R.shape[0], 'out_features': R.shape[0],
-                                               BIAS: False},
-                               input_shape=[chain_start_node.output_shape[0]],
-                               output_shape=[chain_start_node.output_shape[0]],
-                               weights={'weight': R},
-                               layer_class=nn.Linear)
+    # add x @ R af chain_start_node
+    matmul_name = f'{chain_start_node.name}_R'
+    matmul_node = BaseNode(name=matmul_name,
+                           framework_attr={'in_features': R.shape[0], 'out_features': R.shape[0],
+                                           BIAS: False},
+                           input_shape=[chain_start_node.output_shape[0]],
+                           output_shape=[chain_start_node.output_shape[0]],
+                           weights={'weight': np.matmul(R, C)},
+                           layer_class=nn.Linear)
 
-        matmul_node.candidates_quantization_cfg = copy.deepcopy(linear_node.candidates_quantization_cfg)
-        matmul_node.prior_info = copy.deepcopy(linear_node.prior_info)
-        insert_node_after_node(graph, matmul_node, chain_start_node)
-
-        if chain_start_node.type in [nn.LayerNorm]:
-            if is_ln_foldable(graph, chain_start_node):
-                fold_ln_func(graph, matmul_node, chain_start_node)
+    matmul_node.candidates_quantization_cfg = copy.deepcopy(linear_node.candidates_quantization_cfg)
+    matmul_node.prior_info = copy.deepcopy(linear_node.prior_info)
+    insert_node_after_node(graph, matmul_node, chain_start_node)
     return graph
 
 
@@ -560,12 +405,7 @@ def rotate_graph(graph: Graph):
                 current_valid_nodes.append(second_node)
                 current_input_nodes.append(rotationable_block[0])
                 current_output_nodes.append(rotationable_block[1])
-                # TODO:
-                # only one norm is allowed?
-                if len(norm_node) > 0:
-                    current_norm_nodes.append(norm_node[0])
-                else:
-                    current_norm_nodes.append(False)
+                current_norm_nodes.append(norm_node[0])
                     # valid_nodes.append(second_node)
                     # input_nodes.append(rotationable_block[0])
                     # output_nodes.append(rotationable_block[1])
@@ -612,8 +452,6 @@ def rotate_graph(graph: Graph):
             output_nodes = sub_chain["output_nodes"]
             norm_nodes = sub_chain["norm_nodes"]
 
-            fold_ln = validate_layernorm_folding(graph, input_nodes, norm_nodes, valid_nodes[-1])
-
             hidden_size = valid_nodes[0].output_shape[0][-1]
             R1 = get_orthogonal_matrix(hidden_size)
 
@@ -621,7 +459,7 @@ def rotate_graph(graph: Graph):
             # TODO:
             # after checking for norms term, add it to the function, if to enable centering/folding
             # fold into the prev linear, now constructing Linear Layer
-            graph = insert_rotation_embed_after_first_shortcut_node(graph, input_nodes[0], norm_nodes[0], valid_nodes[0], R1, fold_ln)
+            graph = insert_rotation_embed_after_first_shortcut_node(graph, input_nodes[0], norm_nodes[0], valid_nodes[0], R1)
 
             # Step 2 - Iterate over each SubBlock - LN, LINEAR_IN and LINEAR_OUT
             for idx, (norm_node, in_node, out_node) in enumerate(zip(norm_nodes, input_nodes, output_nodes)):

@@ -25,6 +25,7 @@ import torch
 
 
 def get_hadK(n, transpose=False):
+    print(n)
     hadK, K = None, None
     if n % 172 == 0:  # llama-2-7b up
         assert is_pow2(n // 172)
